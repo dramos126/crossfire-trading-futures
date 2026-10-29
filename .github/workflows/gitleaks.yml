@@ -13,3 +13,5 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The same release the export runs; the action's own default lags.
+          GITLEAKS_VERSION: 8.30.1

@@ -1,13 +1,13 @@
 # Gitleaks runs over the public copy before every export and on every push to
-# the public repo. Two things the default rules flag that are not secrets:
+# the public repo. Two things the default rules flag that are not secrets.
+# The single [allowlist] table rather than [[allowlists]]: the older form is
+# honoured by every 8.x release, and the action ran 8.24 where the newer one
+# was ignored (2026-10-29).
 [extend]
 useDefault = true
 
-[[allowlists]]
-description = "A playbook key (hyphenated lower-case words) reads as an API key to the generic rule"
+[allowlist]
+description = "A playbook key (hyphenated lower-case words) reads as an API key to the generic rule; the log-scrubbing tests hold made-up tokens on purpose, as what the scrubber is tested against"
 regexTarget = "secret"
 regexes = ['''^[a-z0-9]+(-[a-z0-9]+)+$''']
-
-[[allowlists]]
-description = "The log-scrubbing tests hold made-up tokens on purpose: they are what the scrubber is tested against"
 paths = ['''src/lib/logging/scrub\.test\.ts''', '''src/lib/logging/acceptance\.test\.ts''']
