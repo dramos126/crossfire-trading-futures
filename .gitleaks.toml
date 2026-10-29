@@ -1,0 +1,13 @@
+# Gitleaks runs over the public copy before every export and on every push to
+# the public repo. Two things the default rules flag that are not secrets:
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "A playbook key (hyphenated lower-case words) reads as an API key to the generic rule"
+regexTarget = "secret"
+regexes = ['''^[a-z0-9]+(-[a-z0-9]+)+$''']
+
+[[allowlists]]
+description = "The log-scrubbing tests hold made-up tokens on purpose: they are what the scrubber is tested against"
+paths = ['''src/lib/logging/scrub\.test\.ts''', '''src/lib/logging/acceptance\.test\.ts''']

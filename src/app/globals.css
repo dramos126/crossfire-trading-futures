@@ -1,0 +1,231 @@
+@import "tailwindcss";
+
+/* Radius scale — the only four radii the app uses, by role (see
+   docs/modules/ui/design-language.md "### Tokens"). The wildcard reset
+   drops Tailwind's own xs/xl/2xl… steps so an off-scale class generates
+   nothing rather than a fifth radius. `static` keeps the variables on
+   :root for plain-CSS consumers like .premium-card. */
+@theme static {
+  --radius-*: initial;
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 10px;
+  --radius-full: 999px;
+}
+
+:root {
+  /* "Midnight Pro" palette — deep navy foundation tuned for long
+     sessions. Surface ramp keeps a single hue so adjacent layers read
+     as distinct strata at a glance:
+       --sidebar     sidebar (deepest — frames the workspace)
+       --background  main content area
+       --card        cards / account banner
+       --bg          inner sections inside a card (deployment body)
+       --bg-row      trade row (zebra-stripe lighter band)
+       --bg-row-alt  trade row (zebra-stripe darker band)
+       --bg-row-deep expanded chart inside a trade row */
+  --sidebar: #070A13;
+  --sidebar-border: #1E293B;
+  --background: #0B0F1A;
+  --foreground: #E2E8F0;
+  --card: #161B2A;
+  --card-border: #1E293B;
+  --card-glow: #334155;
+  --bg: #1C2333;
+  --bg-row: #1C2333;
+  --bg-row-alt: #161B2A;
+  --bg-row-deep: #232C42;
+  --accent: #38BDF8;
+  --accent-hover: #0EA5E9;
+  /* Marker taxonomy blue — entry arrows (long + short). oklch gives
+     perceptually uniform saturation under terminal dark backgrounds. */
+  --accent-blue: oklch(0.65 0.18 250);
+  --success: #4ADE80;
+  --danger: #F87171;
+  --warning: #FBBF24;
+  --muted: #94A3B8;
+  /* Recessive text below base --muted: id stamps, card subtitles, the
+     /logs relative timestamps and facet counts. Decided in the 2026-05-05
+     typography audit and landed 2026-08-27 with the two-lane log viewer,
+     which needed it rather than an opacity modifier on --muted — those are
+     ungreppable and are what the rule exists to end. The sweep of the
+     existing /60, /70, /80 usages is still outstanding; see
+     docs/modules/ui/design-language.md. */
+  --muted-secondary: #6B7A8F;
+
+  /* Dim P&L pair — decided in the 2026-05-05 typography audit and landed
+     2026-09-09 with the chart's excursion segments, which needed a green
+     and a red that recede behind the bracket lines rather than competing
+     with them. Two roles, both "subordinate to a louder statement of the
+     same fact": any P&L rendered *beneath* a title-tier value (bucket
+     breakdowns, R/U lines, fees) and the MFE/MAE excursion pair, which
+     annotates an outcome the bracket has already stated at full
+     saturation. Never use these for a tier's primary display value. */
+  --success-dim: oklch(0.72 0.13 145);
+  --danger-dim: oklch(0.63 0.14 20);
+
+  /* "Tactical Emerald" — weighted forest green for the live-execution
+     Deploy Strategy button. OKLCH stops + 15% white inner highlight aim
+     for "hard plastic toggle" not "glowing neon sign." The bright
+     `--success` token is reserved for PnL callouts where the playful
+     read is fine; this ramp owns the primary-action surface. */
+  --emerald-top: oklch(0.63 0.19 160);
+  --emerald-bottom: oklch(0.53 0.17 155);
+  --emerald-edge: rgba(255, 255, 255, 0.15);
+  --emerald-hover-top: oklch(0.67 0.19 160);
+  --emerald-hover-bottom: oklch(0.57 0.17 155);
+
+  /* System-health amber — used by the SystemWarningBar, the Practice
+     Mode toggle in its on state, and the breathing-pulse keyframes. */
+  --amber-bg: #2A1A05;
+  --amber-border: #92400E;
+  --amber-text: #FCD34D;
+  --amber-glow: rgba(251, 146, 60, 0.45);
+
+  /* Interaction tokens — single source of truth for hover and
+     "selected/active" surface tints so every component reads the same
+     value. Active-ui-bg is a touch stronger so the chosen item still
+     pops in a list of hovered siblings. */
+  --hover: rgba(255, 255, 255, 0.03);
+  --active-ui-bg: rgba(255, 255, 255, 0.05);
+
+  /* Shared action-surface token — used by the sticky footer and any
+     grounded overlay that must sit on the canvas (not float above it).
+     Maps to the card layer so it reads as a distinct stratum without
+     being as heavy as a full modal backdrop. */
+  --bg-surface: var(--card);
+
+  /* Backtest overlay alphas — markers/brackets render in the same hues
+     as their live counterparts but ghosted so MATCH reads as one bright
+     line with a faint twin and DRIFT shows as offset markers. */
+  --bt-bracket-alpha: 0.4;
+  --bt-marker-alpha: 0.75;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
+  font-feature-settings: "cv11", "ss01";
+}
+
+/* iOS Safari zooms the page when a focused field's text is under 16px, and
+   every field in this app sets 12–14px. Below `sm` the fields keep their
+   class size for layout but render at 16px, so a tap on the Playbooks search
+   or a Risk field does not zoom the screen (2026-10-28, phone pass). */
+@media (max-width: 639px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Always render the vertical scrollbar so the gutter never sits empty
+   when content fits the viewport. Avoids both the dead-gutter look and
+   the horizontal shift when content grows past one screen. */
+html {
+  overflow-y: scroll;
+}
+
+/* Tabular figures — apply to any cell rendering numeric data so
+   columns align column-wise even with the proportional Inter font. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Unified status-dot pulse — 3s period, 6px glow radius, accent color.
+   Single keyframe drives all status indicators (TopNav connected pill,
+   engine status, session dots, filter-section active dot) so every dot
+   on the page pulses in sync. color-mix() resolves the CSS custom
+   property inside box-shadow without a hardcoded RGBA fallback. */
+@keyframes pulse-dot {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+}
+
+/* All three legacy class names resolve to the same keyframe so existing
+   component markup continues to work while the PulseDot component
+   rolls out across the codebase. */
+.status-dot-live,
+.session-dot-active,
+.accent-dot-pulse {
+  animation: pulse-dot 3s ease-out infinite;
+}
+
+/* Deployment-card "trade just closed" indicator — a slow opacity
+   breath on a small success dot. Informational, not alerting; clears
+   when the user expands the card. */
+@keyframes deployment-close-pulse {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.deployment-close-pulse {
+  animation: deployment-close-pulse 2s ease-in-out infinite;
+}
+
+/* Breathing border pulse for the SystemWarningBar — slow amber glow
+   that draws the eye without strobing. */
+@keyframes amber-breath {
+  0%, 100% {
+    box-shadow: 0 0 0 0 var(--amber-glow), inset 0 0 0 1px var(--amber-border);
+  }
+  50% {
+    box-shadow: 0 0 12px 2px var(--amber-glow), inset 0 0 0 1px var(--amber-border);
+  }
+}
+
+.amber-breath {
+  animation: amber-breath 4s ease-in-out infinite;
+}
+
+/* Premium card chrome — 1px navy border + a faint top inner-glow so
+   surfaces lift off the background without resorting to drop shadows
+   (which always look heavy on dark UIs). Apply to the outer rounded
+   container of any card. */
+.premium-card {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--card-border);
+  box-shadow: inset 0 1px 0 var(--card-glow);
+}
+
+/* Tactical Emerald primary action button — top-light → bottom-deep
+   gradient, a 0.5px-equivalent inner highlight on the top edge, and
+   a subtle outer glow that doesn't shout. Apply on its own (no
+   bg-* utility) so the gradient survives. */
+.btn-emerald {
+  background: linear-gradient(180deg, var(--emerald-top) 0%, var(--emerald-bottom) 100%);
+  box-shadow:
+    inset 0 1px 0 var(--emerald-edge),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+    0 1px 12px -4px rgba(16, 163, 114, 0.55);
+  color: white;
+  transition: background 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.btn-emerald:hover:not(:disabled) {
+  background: linear-gradient(180deg, var(--emerald-hover-top) 0%, var(--emerald-hover-bottom) 100%);
+  box-shadow:
+    inset 0 1px 0 var(--emerald-edge),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+    0 2px 16px -4px rgba(16, 163, 114, 0.7);
+}
+
+.btn-emerald:active:not(:disabled) {
+  background: linear-gradient(180deg, var(--emerald-hover-bottom) 0%, var(--emerald-hover-top) 100%);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.3),
+    0 0 0 0 rgba(0, 0, 0, 0);
+}

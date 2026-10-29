@@ -1,1 +1,82 @@
-/temp
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files
+.env
+.env*.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# IDE
+.idea/
+.vscode/settings.json
+*.swp
+*.swo
+
+# Claude Code — tracked locally for now; do NOT push without a sensitive-data audit + squash
+# .claude/
+# machine-local permission grants; consolidated into .claude/settings.json — never track
+.claude/settings.local.json
+
+# scratch folder for a working session; never tracked
+/temp/
+
+# local SQLite data
+/data/
+
+# local historical bar cache (parquet files; populated by Phase 2 fetcher)
+/data/bar-cache/
+# stray SQLite files outside /data/ — WAL/SHM sidecars are created by
+# better-sqlite3 next to any opened db, and accidental runs from the
+# repo root can drop them here.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+
+/docs/review
+
+# Backtest exports / analysis dumps — local-only, not committed
+/review
+
+# Backtest CLI run directories (run.json, trades.jsonl, sessions.jsonl)
+/backtests
+
+# Personal strategy configs — local-only, imported via the deployment form's import feature
+/strategy-configs
+# One package manager: yarn. See docs/modules/infra/README.md.
+package-lock.json

@@ -1,0 +1,48 @@
+{
+  "name": "crossfire-trading",
+  "version": "1.0.0",
+  "description": "Crossfire Trading — multi-broker automated futures trading platform",
+  "packageManager": "yarn@1.22.22",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "validate-shim": "node scripts/validate-be-trail-migration-shim.mjs",
+    "smoke:parquet": "node scripts/smoke-parquet-wasm.mjs",
+    "backfill:databento": "tsx scripts/backfill-databento.ts",
+    "backtest": "tsx --env-file-if-exists=.env.local src/cli/backtest/main.ts",
+    "test": "vitest run",
+    "check:deps": "node scripts/check-runtime-deps.mjs"
+  },
+  "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "dependencies": {
+    "@microsoft/signalr": "^10.0.0",
+    "@tailwindcss/postcss": "^4.2.2",
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "apache-arrow": "^21.1.0",
+    "better-sqlite3": "^12.9.0",
+    "dotenv": "^17.4.2",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.1",
+    "lightweight-charts": "^5.1.0",
+    "next": "^16.2.1",
+    "parquet-wasm": "^0.7.1",
+    "postcss": "^8.5.8",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "tailwindcss": "^4.2.2",
+    "tough-cookie": "^4.1.4",
+    "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "jsdom": "^26",
+    "marked": "^18.1.1",
+    "tsx": "^4.21.0",
+    "vitest": "^4.1.5"
+  }
+}
