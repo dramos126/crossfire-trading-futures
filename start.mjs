@@ -39,8 +39,8 @@ if (!existsSync(".env.local")) {
 
 run(["corepack", "yarn", "install", "--frozen-lockfile"]);
 
-// Loopback only: the app has no login of its own, so anyone who can reach the
-// port can trade the configured accounts.
+// Loopback only: a username and password are all that stands between the port
+// and the configured accounts, so the port stays off the network by default.
 if (process.argv.includes("--dev")) {
   run(["corepack", "yarn", "dev", "-H", "127.0.0.1", "-p", "3000"]);
 } else {

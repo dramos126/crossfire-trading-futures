@@ -26,9 +26,10 @@ Historical data for backtests comes from **Databento**.
   but it does auto-trade ExpressFunded, which is a funded account, and
   Tradovate accounts on Tradovate's live server. That is the author's reading
   of the rules, not a guarantee; do not rely on it to keep you inside them.
-- **The app has no login of its own.** Anyone who can open it in a browser can
-  trade the accounts you configure. Run it on your own machine; the start
-  script listens on `localhost` only.
+- **A username and password are the only thing between the internet and your
+  accounts.** You choose them on first run. Run the app on your own machine;
+  the start script listens on `localhost` only. Do not put it on the open
+  internet.
 - Provided as is, with no warranty. See [LICENSE](LICENSE).
 
 ## What you need
@@ -94,8 +95,9 @@ The ones that matter most:
 ## First run
 
 1. Open the app. With no broker configured it opens **Settings**.
-2. Enter your Topstep username and API key and/or your Tradovate credentials,
-   and test the connection. They are stored in the local database.
+2. Choose the username and password this install will ask for, enter your
+   Topstep username and API key and/or your Tradovate credentials, and test
+   the connection. They are stored in the local database.
 3. Your accounts appear on the **Dashboard**. Each is marked practice or live;
    in the default `staging` build only practice accounts can be auto-traded.
 4. Open **Books**. The **Sample** book is there with no account on it; *Deploy

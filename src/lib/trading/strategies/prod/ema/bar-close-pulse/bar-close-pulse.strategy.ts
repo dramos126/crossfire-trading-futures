@@ -54,7 +54,7 @@ const PULSE_SL_EMA_ID = "__pulse_sl_ema";
 const PULSE_SL_EMA21_ID = "__pulse_sl_ema21";
 
 const strategy: StrategyModule<Params> = {
-  version: "3.1.0",
+  version: "3.1.1",
   params: withCommonParams({
     // ── Trigger (added 2026-04-30) ──────────────────────────────────
     minTriggerAtrMultiple: {
