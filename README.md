@@ -46,16 +46,17 @@ Historical data for backtests comes from **Databento**.
 ```sh
 git clone https://github.com/dramos126/crossfire-trading-futures.git
 cd crossfire-trading-futures
-./start.sh
+node start.mjs
 ```
 
-The script checks for Node, creates `.env.local` from the example if you have
-none, installs the dependencies, builds the app and starts it on
-<http://localhost:3000>. Ctrl-C stops it; run it again after pulling new code.
-`./start.sh --dev` runs the development server instead, which rebuilds as you
-edit.
+The script creates `.env.local` from the example if you have none, installs
+the dependencies, builds the app and starts it on <http://localhost:3000>.
+Ctrl-C stops it; run it again after pulling new code. On Windows you can also
+double-click `start.cmd`; on Mac and Linux `./start.sh` does the same.
+`node start.mjs --dev` runs the development server instead, which rebuilds as
+you edit.
 
-The same thing by hand, which also works on Windows:
+The same thing by hand:
 
 ```sh
 corepack yarn install --frozen-lockfile
