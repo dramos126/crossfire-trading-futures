@@ -137,7 +137,10 @@ export function connectionWarning({
   return null;
 }
 
-export type SystemTone = "ok" | "warn" | "danger";
+/** `muted` is a state that is deliberate rather than wrong — no broker yet. */
+export type SystemTone = "ok" | "warn" | "danger" | "muted";
+
+export const NO_BROKER_PILL = "No broker";
 
 export interface SystemHealth {
   /** Headline status for the connection pill in the top nav. */
@@ -174,7 +177,7 @@ export interface SystemWarning {
  * the combined state.
  */
 export function useSystemHealth(): SystemHealth {
-  const { status, error, errorKind, connect, token, live } = useTrading();
+  const { status, error, errorKind, connect, token, live, noBroker } = useTrading();
   const engineStatus = useEngineStatus();
   const [marketHub, setMarketHub] = useState<MarketHubStatus | null>(null);
   const [seamHealth, setSeamHealth] = useState<SeamHealth | null>(null);
@@ -237,6 +240,11 @@ export function useSystemHealth(): SystemHealth {
     pillLabel = "Error";
     pillTone = "danger";
     detail = error;
+  } else if (status === "connected" && noBroker) {
+    // Not red: nothing is broken, there is nothing to trade with yet, and the
+    // banner under the nav says where to connect one.
+    pillLabel = NO_BROKER_PILL;
+    pillTone = "muted";
   } else if (status === "connected") {
     const hubRealtime = marketHub?.mode === "realtime";
     const hubPassive = marketHub?.mode === "passive";
@@ -306,7 +314,10 @@ export function useSystemHealth(): SystemHealth {
   });
   if (connectWarning) {
     warning = connectWarning;
-  } else if (status === "connected" && seamHealth?.degraded) {
+  } else if (status === "connected" && !noBroker && seamHealth?.degraded) {
+    // Never with no broker, here or for the kicked hub below: an engine with
+    // nothing to trade reports no feed, and that is not an outage.
+    //
     // Names what has stopped, because the frozen work is invisible on the
     // broker's book: a stop that has stopped trailing looks exactly like one
     // that is still trailing. The list comes from the engine rather than
@@ -332,6 +343,7 @@ export function useSystemHealth(): SystemHealth {
     };
   } else if (
     status === "connected"
+    && !noBroker
     && marketHub?.mode === "passive"
     && !marketHub.autoRetry
   ) {

@@ -234,7 +234,20 @@ describe("reducer — SIGNED_OUT and the failure kind", () => {
     const failed = reducer(initialState, { type: "ERROR", error: "raw text", kind: "broker-refused" });
     const retrying = reducer(failed, { type: "CONNECTING" });
     expect(retrying).toMatchObject({ status: "connecting", error: null, errorKind: "broker-refused" });
-    expect(reducer(retrying, { type: "AUTHENTICATED", token: "t" }).errorKind).toBeNull();
+    expect(reducer(retrying, { type: "AUTHENTICATED", token: "t", noBroker: false }).errorKind).toBeNull();
+  });
+});
+
+describe("reducer — a session with no broker", () => {
+  it("AUTHENTICATED carries the server's no-broker answer, and the next session's answer replaces it", () => {
+    const browsing = reducer(initialState, { type: "AUTHENTICATED", token: "t1", noBroker: true });
+    expect(browsing.noBroker).toBe(true);
+    // A broker connected in Settings, then a resume: the flag follows the new answer.
+    expect(reducer(browsing, { type: "AUTHENTICATED", token: "t2", noBroker: false }).noBroker).toBe(false);
+  });
+
+  it("starts false, so nothing reads as no broker before the server has answered", () => {
+    expect(initialState.noBroker).toBe(false);
   });
 });
 

@@ -38,7 +38,8 @@ Historical data for backtests comes from **Databento**.
   is installed globally.
 - A Topstep account with ProjectX API access (an API key from your account's
   API settings — Topstep may charge for it), and/or a Tradovate account with
-  API access. Each user brings their own; nothing here works without one.
+  API access. Each user brings their own; nothing trades without one, though
+  the app can be looked around in first.
 - For backtests only: a [Databento](https://databento.com) account and API key
   (downloads are billed per use).
 
@@ -81,7 +82,7 @@ corepack yarn build          # production build
 
 Every variable in [.env.example](.env.example) is optional and explained
 there. Broker credentials are normally **not** put in this file: you enter them
-in the browser on first run, and they are stored in the local SQLite database.
+in the browser, in Settings, and they are stored in the local SQLite database.
 The ones that matter most:
 
 | Variable | What it does |
@@ -94,12 +95,16 @@ The ones that matter most:
 
 ## First run
 
-1. Open the app. With no broker configured it opens **Settings**.
-2. Choose the username and password this install will ask for, enter your
-   Topstep username and API key and/or your Tradovate credentials, and test
-   the connection. They are stored in the local database.
-3. Your accounts appear on the **Dashboard**. Each is marked practice or live;
-   in the default `staging` build only practice accounts can be auto-traded.
+1. Open the app. It asks for one thing: the username and password this install
+   will ask for. Choose them and press *Create sign-in*.
+2. You can now look around — the playbooks, their measurements and the books —
+   with no broker connected. A line under the menu says nothing can trade
+   until one is, and every *Deploy* is disabled.
+3. To trade, open **Settings → Connections**, enter your Topstep username and
+   API key and/or your Tradovate credentials, test the connection and save.
+   They are stored in the local database. Your accounts then appear on the
+   **Dashboard**. Each is marked practice or live; in the default `staging`
+   build only practice accounts can be auto-traded.
 4. Open **Books**. The **Sample** book is there with no account on it; *Deploy
    Sample to an account* puts a practice account on it, with each of its three
    playbooks as a switch you can turn on or off. Set the account's risk per

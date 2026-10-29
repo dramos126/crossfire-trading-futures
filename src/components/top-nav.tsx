@@ -49,16 +49,19 @@ const navItems: readonly NavItem[] = [
   ...(process.env.NEXT_PUBLIC_DEV_TOOLS_ENABLED === "true" ? [{ href: "/dev", label: "Dev" }] : []),
 ];
 
-const TONE_TO_DOT: Record<SystemTone, string> = {
+/** The pill's dot by tone — the header's and the status rail's. */
+export const TONE_TO_DOT: Record<SystemTone, string> = {
   ok: "bg-[var(--success)]",
   warn: "bg-[var(--warning)]",
   danger: "bg-[var(--danger)]",
+  muted: "bg-[var(--muted)]",
 };
 
 const TONE_TO_TEXT: Record<SystemTone, string> = {
   ok: "text-[var(--success)]",
   warn: "text-[var(--warning)]",
   danger: "text-[var(--danger)]",
+  muted: "text-[var(--muted)]",
 };
 
 // Build-time signal — inlined by `next build` so the chrome resolves
@@ -139,9 +142,10 @@ const GLYPH_BUTTON_CLASS =
  * The lockup — the tile beside a two-line wordmark, `Crossfire` over
  * `TRADING · FUTURES` — shared by the header and the drawer's top row. The
  * text is HTML rather than the SVG's `<text>` so it sets in the app's font
- * and stays crisp; the proportions are the lockup file's.
+ * and stays crisp; the proportions are the lockup file's. First run's setup
+ * screen carries it too, since that screen has no header.
  */
-function Lockup() {
+export function Lockup() {
   return (
     <>
       <BrandTile />

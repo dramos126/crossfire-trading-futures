@@ -315,52 +315,6 @@ export function buildPlaceholder(
 }
 
 /**
- * The body `POST /api/settings/setup` takes, from the same field values every
- * other path uses.
- *
- * That route is the **only** write available on a first run with no session,
- * and it is single-shot by design — a drive-by takeover guard, so it refuses
- * once any credential is in the database. Hence one submit for every broker
- * at once rather than the per-service Save the configured page has: with no
- * session there is nothing to write incrementally *with*.
- */
-export function buildSetupBody(
-  schemas: readonly BrokerSchema[],
-  values: Record<string, Record<string, string>>,
-  webhookUrl: string,
-): Record<string, unknown> {
-  const body: Record<string, unknown> = {};
-  const topstep = values["topstep"] ?? {};
-  const username = (topstep["topstepUsername"] ?? "").trim();
-  const apiKey = topstep["topstepApiKey"] ?? "";
-  if (username.length > 0 || apiKey.length > 0) {
-    body.topstepUsername = username;
-    body.topstepApiKey = apiKey;
-  }
-  const tv = values["tradovate"] ?? {};
-  const tradovate = {
-    username: (tv["tradovateUsername"] ?? "").trim(),
-    password: tv["tradovatePassword"] ?? "",
-    apiCid: (tv["tradovateApiCid"] ?? "").trim(),
-    apiSecret: tv["tradovateApiSecret"] ?? "",
-    appId: (tv["tradovateAppId"] ?? "").trim(),
-    appVersion: (tv["tradovateAppVersion"] ?? "").trim(),
-    deviceId: (tv["tradovateDeviceId"] ?? "").trim(),
-  };
-  // The route rejects a partial Tradovate set with a 400 and has no per-field
-  // editing to recover through, so a half-filled section is sent as
-  // not-supplied. The confirm's own gate is what stops that being silent: a
-  // touched block is `inUse`, and an `inUse` block that never passed a test
-  // refuses the confirm by name.
-  if (schemas.some((s) => s.id === "tradovate") && Object.values(tradovate).every((v) => v.length > 0)) {
-    body.tradovate = tradovate;
-  }
-  const webhook = webhookUrl.trim();
-  body.topstepWebhookUrl = webhook.length > 0 ? webhook : null;
-  return body;
-}
-
-/**
  * Is this broker part of the setup being confirmed?
  *
  * **A server-provided default is not operator input**, and that distinction is

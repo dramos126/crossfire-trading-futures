@@ -130,7 +130,7 @@ describe("POST /api/auth — sign in", () => {
     const res = await signIn();
     expect(res.status).toBe(200);
     const body: unknown = await res.json();
-    expect(body).toEqual({ signedIn: true, engineReady: true });
+    expect(body).toEqual({ signedIn: true, engineReady: true, brokerConfigured: true });
     expect(validateSession(cookieToken(res))).toBe(true);
     expect(res.headers.get("set-cookie")).toMatch(/HttpOnly; SameSite=Strict/);
     expect(sessionRows()).toBe(1);
@@ -149,8 +149,25 @@ describe("POST /api/auth — sign in", () => {
     expect(sessionRows()).toBe(0);
   });
 
-  it("no session without a configured broker — the pair alone is not enough", async () => {
+  it("with no broker configured, the pair alone signs in, and the answer says there is no broker", async () => {
     plugins.tradovate.isConfigured.mockReturnValue(false);
+    const res = await signIn();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ signedIn: true, engineReady: false, brokerConfigured: false });
+    expect(validateSession(cookieToken(res))).toBe(true);
+    expect(plugins.tradovate.initialize).not.toHaveBeenCalled();
+  });
+
+  it("with no broker configured, a wrong pair is still refused", async () => {
+    plugins.tradovate.isConfigured.mockReturnValue(false);
+    const res = await signIn(NAME, "not the password at all");
+    expect(res.status).toBe(401);
+    expect(sessionRows()).toBe(0);
+  });
+
+  it("answers needsSetup on an install with no broker and no sign-in account — first run", async () => {
+    plugins.tradovate.isConfigured.mockReturnValue(false);
+    db.prepare(`DELETE FROM web_account`).run();
     const res = await signIn();
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ needsSetup: true });
@@ -282,6 +299,14 @@ describe("POST /api/auth — resume (no body)", () => {
     expect(res.status).toBe(401);
     expect(await res.json()).toMatchObject({ signInRequired: true });
     expect(sessionRows()).toBe(0);
+  });
+
+  it("resumes a live cookie with no broker configured, and says so", async () => {
+    const token = cookieToken(await signIn());
+    plugins.tradovate.isConfigured.mockReturnValue(false);
+    const res = await POST(authRequest(undefined, { cookie: token }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ signedIn: true, brokerConfigured: false });
   });
 
   it("still runs the broker check, so a dead broker reads as an error, not as signed in", async () => {

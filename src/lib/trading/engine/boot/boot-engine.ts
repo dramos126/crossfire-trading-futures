@@ -1454,9 +1454,10 @@ async function activateEngine(restart: RestartVerdict, timing: BootTiming): Prom
   // **The latch lives on the engine, and it is the only one.** Memoising the
   // verdict is not enough on its own, because the candidate set is not
   // memoised with it: `runBootSequence` has two callers and
-  // `activateFromSettings` is reachable from `POST /api/settings/setup` at any
-  // time, including after the out-of-band key rotation that route exists to
-  // catch. `if (eng.isRunning()) return` is the only other guard and
+  // `activateFromSettings` is reachable from `POST /api/settings/setup` and
+  // from `PUT /api/settings` (the first broker saved on an install set up with
+  // none) at any time, including after the out-of-band key rotation the setup
+  // route exists to catch. `if (eng.isRunning()) return` is the only other guard and
   // `isRunning()` is false after either fatal-auth `stop()`. Without it a
   // 09:00 boot's `flatten` verdict meets `getAllOpenTrades()` as it stands at
   // 14:30 and force-closes a position opened at 14:15, logging "went unmanaged

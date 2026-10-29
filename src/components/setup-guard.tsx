@@ -20,12 +20,15 @@ import { useTrading } from "@/lib/hooks/use-trading/use-trading-state";
  * Two-step check, both steps reading from the provider rather than running
  * their own auth:
  *  1. `status === "needsSetup"` — the provider's `connect()` already
- *     POSTs /api/auth and maps the 503 `{ needsSetup: true }` sentinel
- *     to that status. Means no credentials resolve anywhere; redirect.
+ *     POSTs /api/auth and maps the 503 `{ needsSetup }` / `{ needsAccount }`
+ *     sentinels to that status. Means no sign-in account exists; redirect.
  *  2. GET /api/settings with the provider's token — if setupConfirmedAt
  *     is null, setup has never been confirmed even though creds resolve.
  *     Redirect so the operator confirms; the page prefills from the bundle
  *     and its confirm is what writes the missing stamp.
+ *
+ * A session with no broker is neither: setup was confirmed with the sign-in
+ * alone, and every page renders under the chrome's no-broker line.
  *
  * **The guard does not mint a session.** It used to POST /api/auth
  * itself, on every AppShell mount, and throw the token away after one

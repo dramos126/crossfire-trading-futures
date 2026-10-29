@@ -649,7 +649,8 @@ const ROUTES: {
     methods: ["refreshBrokerRegistry", "registeredAccountIds", "handleOrphanedAccount"],
   },
   { file: "app/api/auth/route.ts", methods: ["areHubsReady"] },
-  { file: "app/api/settings/route.ts", methods: ["invalidateAccountNames", "reloadTradovateClients"] },
+  // `activateFromSettings` since 2026-10-29: the first broker saved on an install set up with none wakes the engine.
+  { file: "app/api/settings/route.ts", methods: ["invalidateAccountNames", "reloadTradovateClients", "activateFromSettings"] },
   { file: "app/api/settings/reset/route.ts", methods: ["emitDeploymentsChanged", "stopIfRunning", "invalidateAccountNames"] },
   { file: "app/api/settings/setup/route.ts", methods: ["activateFromSettings"] },
   {

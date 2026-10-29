@@ -20,13 +20,21 @@ import {
 /**
  * First run is *not* an install with no credentials — it is an install that
  * has never been confirmed. Credentials resolving from the environment on a
- * fresh database is the common case and is still a first run, because
- * `setup_confirmed_at` is what `<SetupGuard>` reads.
+ * fresh database is still a first run, because `setup_confirmed_at` is what
+ * `<SetupGuard>` reads.
+ *
+ * `no-broker` is a confirmed install with no broker yet: first run asked only
+ * for the sign-in (2026-10-29). Connections and Sign-in work; Risk and Danger
+ * Zone wait for a broker.
  */
-export type SettingsMode = "first-run" | "configured";
+export type SettingsMode = "first-run" | "no-broker" | "configured";
 
-export function resolveSettingsMode(setupConfirmedAt: string | null): SettingsMode {
-  return setupConfirmedAt == null ? "first-run" : "configured";
+export function resolveSettingsMode(
+  setupConfirmedAt: string | null,
+  brokerConfigured: boolean,
+): SettingsMode {
+  if (setupConfirmedAt == null) return "first-run";
+  return brokerConfigured ? "configured" : "no-broker";
 }
 
 /** One credential block, as far as the page's gates are concerned. */
@@ -49,7 +57,7 @@ export interface BrokerProgress {
 }
 
 /**
- * The one block a first run hides.
+ * The one block a first run hides, and an install with no broker too.
  *
  * Factory reset on an install with nothing to reset is the only block with no
  * meaning before the confirm. Everything else renders — hiding blocks is how
@@ -61,9 +69,9 @@ export function showsDangerZone(mode: SettingsMode): boolean {
 }
 
 /**
- * Risk needs the account catalogue, and a first run has none to set it
- * against — the page would be an empty list under a blurb saying nothing
- * trades without it.
+ * Risk needs the account catalogue, and neither a first run nor an install
+ * with no broker has one to set it against — the page would be an empty list
+ * under a blurb saying nothing trades without it.
  */
 export function showsRisk(mode: SettingsMode): boolean {
   return mode === "configured";
@@ -71,10 +79,11 @@ export function showsRisk(mode: SettingsMode): boolean {
 
 /**
  * Changing the password needs a session, and a first run's session (when it
- * has one) is about to finish setup, not maintain it.
+ * has one) is about to finish setup, not maintain it. An install with no
+ * broker has its sign-in already.
  */
 export function showsSignIn(mode: SettingsMode): boolean {
-  return mode === "configured";
+  return mode !== "first-run";
 }
 
 export type SettingsPageId = "connections" | "risk" | "notifications" | "sign-in" | "danger-zone";
@@ -98,8 +107,8 @@ export const SETTINGS_PAGES: readonly SettingsPageEntry[] = [
 export const SETTINGS_LANDING_HREF = "/settings/connections";
 
 /**
- * The menu a mode shows. A first run drops the two pages that cannot render
- * then, rather than listing entries that lead to a page saying "not yet".
+ * The menu a mode shows. A mode drops the pages that cannot render in it,
+ * rather than listing entries that lead to a page saying "not yet".
  */
 export function settingsPagesFor(mode: SettingsMode): readonly SettingsPageEntry[] {
   return SETTINGS_PAGES.filter((page) => {
@@ -131,7 +140,7 @@ export function showsMarketData(
   mode: SettingsMode,
   brokers: readonly BrokerProgress[],
 ): boolean {
-  return mode === "configured" || brokers.some((b) => b.verified);
+  return mode !== "first-run" || brokers.some((b) => b.verified);
 }
 
 /** The first run's sign-in, as typed. */

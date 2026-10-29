@@ -138,12 +138,15 @@ vi.mock("@/lib/brokers/tradovate/client", () => ({
   readTradovateCredentialsFromDb: vi.fn().mockReturnValue(null),
 }));
 
+const mockActivateFromSettings = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock("@/lib/trading/engine/engine-singleton", () => ({
   getEngineIfReady: vi.fn().mockReturnValue(null),
+  activateFromSettings: mockActivateFromSettings,
 }));
 
 const mockTopstepPlugin = {
   id: "topstep",
+  isConfigured: vi.fn(() => true),
   credentialSchema: vi.fn().mockReturnValue([
     { key: "topstepUsername" },
     { key: "topstepApiKey" },
@@ -154,6 +157,7 @@ const mockTopstepPlugin = {
 
 const mockTradovatePlugin = {
   id: "tradovate",
+  isConfigured: vi.fn(() => false),
   credentialSchema: vi.fn().mockReturnValue([
     { key: "tradovateUsername" },
     { key: "tradovatePassword" },
@@ -228,6 +232,10 @@ beforeEach(() => {
   mockTradovatePlugin.applyCredentials.mockReset();
   mockTradovatePlugin.applyCredentials.mockResolvedValue(undefined);
   mockTradovatePlugin.computeCredsSignature.mockReturnValue("tradovate-sig");
+  mockTopstepPlugin.isConfigured.mockReset();
+  mockTopstepPlugin.isConfigured.mockReturnValue(true);
+  mockTradovatePlugin.isConfigured.mockReturnValue(false);
+  mockActivateFromSettings.mockClear();
   vi.mocked(getDb).mockReturnValue({
     transaction: vi.fn((fn: () => void) => fn),
     prepare: vi.fn(() => ({ run: vi.fn(), get: vi.fn() })),
@@ -293,6 +301,30 @@ describe("PUT /api/settings — Topstep-only cred fields", () => {
     expect(callArgs).toHaveProperty("topstepUsername", "user-x");
     // topstepApiKey was absent in the request body
     expect(callArgs).not.toHaveProperty("topstepApiKey");
+  });
+});
+
+describe("PUT /api/settings — the first broker saved wakes an engine that booted with none", () => {
+  it("activates once when no broker was configured before the save and one is after", async () => {
+    mockTopstepPlugin.isConfigured.mockReturnValueOnce(false).mockReturnValue(true);
+    const res = await PUT(putRequest({ topstepUsername: "new-user" }));
+    expect(res.status).toBe(200);
+    await vi.waitFor(() => expect(mockActivateFromSettings).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not activate a save on an install that already had a broker", async () => {
+    const res = await PUT(putRequest({ topstepUsername: "new-user" }));
+    expect(res.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockActivateFromSettings).not.toHaveBeenCalled();
+  });
+
+  it("does not activate a save that leaves the install with no broker", async () => {
+    mockTopstepPlugin.isConfigured.mockReturnValue(false);
+    const res = await PUT(putRequest({ notificationsEnabled: true }));
+    expect(res.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mockActivateFromSettings).not.toHaveBeenCalled();
   });
 });
 

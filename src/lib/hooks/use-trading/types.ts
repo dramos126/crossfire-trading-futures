@@ -55,6 +55,10 @@ export interface TradingState {
    * When false, the UI falls back to REST polling. Operators see this as
    * an indicator instead of wondering why numbers feel sluggish. */
   live: boolean;
+  /** Signed in on an install with no broker configured: the app is browsed,
+   *  nothing can trade, and there is no account list to read. Set with each
+   *  session; `useNoBroker` is how a surface asks. */
+  noBroker: boolean;
 }
 
 /** What `requireSession` answers for a missing, expired or wiped session —
@@ -73,11 +77,12 @@ export const initialState: TradingState = {
   errorKind: null,
   accountCatalogWarning: null,
   live: false,
+  noBroker: false,
 };
 
 export type Action =
   | { type: "CONNECTING" }
-  | { type: "AUTHENTICATED"; token: string }
+  | { type: "AUTHENTICATED"; token: string; noBroker: boolean }
   | { type: "ACCOUNTS_LOADED"; accounts: AccountRow[]; catalogWarning: string | null }
   | { type: "POSITIONS_LOADED"; accountId: number; positions: Position[] }
   | { type: "QUOTES_LOADED"; quotes: Record<string, QuoteSnapshot> }

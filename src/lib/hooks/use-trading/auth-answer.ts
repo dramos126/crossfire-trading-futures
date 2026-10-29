@@ -17,7 +17,8 @@ export type AuthFailure =
   | { kind: ConnectFailureKind };
 
 export type AuthAnswer =
-  | { kind: "signed-in"; engineReady: boolean }
+  /** `brokerConfigured: false` — signed in on an install with no broker yet. */
+  | { kind: "signed-in"; engineReady: boolean; brokerConfigured: boolean }
   /** No broker anywhere, or no sign-in account yet — first run fixes both. */
   | { kind: "needs-setup" }
   | { kind: "sign-in-required" }
@@ -36,7 +37,13 @@ function field(body: unknown, key: string): unknown {
 
 export function readAuthAnswer(status: number, body: unknown): AuthAnswer {
   if (status === 200 && field(body, "signedIn") === true) {
-    return { kind: "signed-in", engineReady: field(body, "engineReady") === true };
+    return {
+      kind: "signed-in",
+      engineReady: field(body, "engineReady") === true,
+      // Only an explicit `false` reads as no broker: a body without the field
+      // is a server that checked a broker before it answered.
+      brokerConfigured: field(body, "brokerConfigured") !== false,
+    };
   }
   if (field(body, "needsSetup") === true || field(body, "needsAccount") === true) {
     return { kind: "needs-setup" };
@@ -95,8 +102,10 @@ export async function postAuth(credentials?: { username: string; password: strin
   }
 }
 
-export const BROKER_NOT_CONFIGURED_COPY =
-  "No broker connection is set up, so nothing can trade. Add one on the Connections page in Settings.";
+/** The one sentence for an install with no broker: the banner under the nav,
+ *  the Dashboard's empty board, every inert Deploy, and the `error` banner
+ *  for the same state. `NoBrokerSentence` links its last word. */
+export const NO_BROKER_COPY = "No broker connected — nothing can trade. Connect one in Settings.";
 export const BROKER_REFUSED_COPY =
   "Your broker turned down the saved credentials, so nothing can trade. Check them on the Connections page in Settings, then reconnect.";
 export const UNREACHABLE_COPY =
@@ -129,7 +138,7 @@ export function authFailureCopy(failure: AuthFailure): string {
     case "rate-limited":
       return rateLimitedCopy(failure.scope, failure.retryAfterSeconds);
     case "broker-not-configured":
-      return BROKER_NOT_CONFIGURED_COPY;
+      return NO_BROKER_COPY;
     case "broker-refused":
       return BROKER_REFUSED_COPY;
     case "unreachable":

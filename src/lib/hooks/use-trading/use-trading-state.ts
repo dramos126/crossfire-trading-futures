@@ -147,9 +147,14 @@ export function useTradingState() {
     : state.accounts.filter((a) => !isPracticeAccount(a));
 
   /** After the server has vouched for the cookie: a fresh marker, then the
-   *  account list on it. */
-  const adoptSession = useCallback(async () => {
-    dispatch({ type: "AUTHENTICATED", token: nextSessionMarker() });
+   *  account list on it. With no broker there is no list to ask for —
+   *  `/api/accounts` would 503, and that is not an error on this install. */
+  const adoptSession = useCallback(async (brokerConfigured: boolean) => {
+    dispatch({ type: "AUTHENTICATED", token: nextSessionMarker(), noBroker: !brokerConfigured });
+    if (!brokerConfigured) {
+      dispatch({ type: "ACCOUNTS_LOADED", accounts: [], catalogWarning: null });
+      return;
+    }
     try {
       const acctRes = await fetch("/api/accounts");
       const acctData = await acctRes.json();
@@ -191,7 +196,7 @@ export function useTradingState() {
         dispatch({ type: "ERROR", error: answer.detail, kind: connectFailureKind(answer.failure) });
         return;
       case "signed-in":
-        await adoptSession();
+        await adoptSession(answer.brokerConfigured);
     }
   }, [adoptSession]);
 
@@ -206,7 +211,7 @@ export function useTradingState() {
       const answer = await postAuth({ username, password });
       switch (answer.kind) {
         case "signed-in":
-          await adoptSession();
+          await adoptSession(answer.brokerConfigured);
           return null;
         case "needs-setup":
           dispatch({ type: "NEEDS_SETUP" });

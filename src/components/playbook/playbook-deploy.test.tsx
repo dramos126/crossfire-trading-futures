@@ -45,6 +45,7 @@ import {
   lockedRefusal,
 } from "@/lib/trading/broker-access/account-state-gate";
 import type { StrategyConfig } from "@/lib/trading/strategy-types";
+import { NO_BROKER_COPY } from "@/lib/hooks/use-trading/auth-answer";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -74,6 +75,7 @@ const harness = vi.hoisted(() => {
     deleteDeployment: vi.fn(),
     syncEngine: vi.fn(),
     confirm: vi.fn(),
+    noBroker: false,
   };
 });
 
@@ -94,6 +96,7 @@ vi.mock("@/lib/hooks/use-trading/use-trading-state", () => ({
     practiceOnly: true,
     token: "t",
     reloadAccounts: harness.reloadAccounts,
+    noBroker: harness.noBroker,
   }),
 }));
 
@@ -176,6 +179,27 @@ describe("the header's Deploy button", () => {
     const button = el.querySelector("button")!;
     expect(button.disabled).toBe(true);
     expect(button.title).toBe(NO_CALIBRATED_INSTRUMENT_REASON);
+  });
+
+  it("with no broker, is disabled — not hidden — with the no-broker sentence beside it and in its title", () => {
+    harness.noBroker = true;
+    onTestFinished(() => {
+      harness.noBroker = false;
+    });
+    const opened: string[] = [];
+    const el = render(
+      <PlaybookDeployButton
+        target={{ kind: "ready", ticker: "/MNQ" }}
+        open={false}
+        onOpen={() => opened.push("open")}
+      />,
+    );
+    const button = el.querySelector("button")!;
+    expect(button.textContent).toBe("Deploy");
+    expect(button.disabled).toBe(true);
+    expect(button.title).toBe(NO_BROKER_COPY);
+    expect(el.textContent).toContain(NO_BROKER_COPY);
+    expect(el.querySelector("a")?.getAttribute("href")).toBe("/settings");
   });
 });
 

@@ -4,6 +4,7 @@ import { TopNav } from "@/components/top-nav";
 import { SystemWarningBar } from "@/components/system-warning-bar";
 import { StatusRail } from "@/components/status-rail";
 import { SignInForm } from "@/components/sign-in/sign-in-form";
+import { NoBrokerBanner } from "@/components/settings/no-broker";
 import { useTrading } from "@/lib/hooks/use-trading/use-trading-state";
 
 /**
@@ -28,10 +29,21 @@ import { useTrading } from "@/lib/hooks/use-trading/use-trading-state";
  */
 export function AppChrome({ children }: { children: React.ReactNode }) {
   const { status } = useTrading();
+  // First run is one screen with nothing around it: no account exists, so no
+  // page but Settings' setup card can render, and a nav to pages that bounce
+  // back here would read as broken. The screen carries the logo itself.
+  if (status === "needsSetup") {
+    return (
+      <main className="min-h-screen">
+        <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-8 sm:py-12">{children}</div>
+      </main>
+    );
+  }
   return (
     <div className="min-h-screen flex flex-col">
       <TopNav />
       <SystemWarningBar />
+      <NoBrokerBanner />
       <main className="flex-1 pb-10 sm:pb-12">
         <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-5 sm:py-8">
           {/* In place of the page, not over it: every page — Settings

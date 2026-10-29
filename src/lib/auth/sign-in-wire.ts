@@ -27,8 +27,11 @@ export const SETUP_CODE_HINT =
 export const SETUP_CODE_MISSING_MESSAGE = "Enter the setup code from the server's log.";
 export const SETUP_CODE_WRONG_MESSAGE = "That is not the setup code in the server's log.";
 
-/** The 200 body:the session itself is in the cookie, never in the body. */
+/** The 200 body:the session itself is in the cookie, never in the body.
+ *  `brokerConfigured: false` is an install signed in with no broker yet —
+ *  browsable, and nothing can trade. */
 export interface SignedInBody {
   signedIn: true;
   engineReady: boolean;
+  brokerConfigured: boolean;
 }

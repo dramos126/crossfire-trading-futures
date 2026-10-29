@@ -53,6 +53,7 @@ vi.mock("@/lib/trading/engine/engine-singleton", () => ({
 
 import { NextRequest } from "next/server";
 import { POST } from "./route";
+import { setSetupSignature, setTopstepWebhookUrl } from "@/lib/db/settings";
 import { PASSWORD_TOO_SHORT_PROBLEM } from "@/lib/auth/web-account-rules";
 import { LOGIN_FAILURE_LIMIT, resetLoginLimiterForTests } from "@/lib/auth/login-limiter";
 import {
@@ -185,10 +186,59 @@ describe("POST /api/settings/setup — the sign-in account", () => {
     expect(setupCodeMatches(setupCode)).toBe(false);
   });
 
-  it("still needs a broker when none resolves and the body names none", async () => {
+  it("with no broker anywhere, the sign-in alone is the first run: account created, setup confirmed, nothing activated", async () => {
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const res = await POST(setupRequest({ account: ACCOUNT }));
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, accountCreated: true, setupConfirmedAt: expect.any(String) });
+    expect(h.createWebAccount).toHaveBeenCalledWith(ACCOUNT.username, ACCOUNT.password);
+    expect(h.setSetupConfirmedAt).toHaveBeenCalledTimes(1);
+    expect(h.topstepPlugin.applyCredentials).not.toHaveBeenCalled();
+    expect(h.activateFromSettings).not.toHaveBeenCalled();
+    // No broker, so no code is asked for or printed.
+    expect(write.mock.calls.some((c) => String(c[0]).startsWith(SETUP_CODE_LINE_PREFIX))).toBe(false);
+    write.mockRestore();
+  });
+
+  it("with no broker, stamps setup before the account, so an account insert that fails leaves a retry that can finish", async () => {
+    h.createWebAccount.mockRejectedValueOnce(new Error("disk I/O error"));
+    const failed = await POST(setupRequest({ account: ACCOUNT }));
+    expect(failed.status).toBe(500);
+    expect(h.setSetupConfirmedAt.mock.invocationCallOrder[0]).toBeLessThan(
+      h.createWebAccount.mock.invocationCallOrder[0],
+    );
+
+    // No account was written, so the route is still open and the retry lands.
+    const retried = await POST(setupRequest({ account: ACCOUNT }));
+    expect(retried.status).toBe(200);
+    expect(await retried.json()).toMatchObject({ ok: true, accountCreated: true });
+    expect(h.createWebAccount).toHaveBeenCalledTimes(2);
+  });
+
+  it("with no broker, a stamp that fails creates no account", async () => {
+    h.setSetupConfirmedAt.mockImplementationOnce(() => {
+      throw new Error("disk I/O error");
+    });
+    const res = await POST(setupRequest({ account: ACCOUNT }));
+    expect(res.status).toBe(500);
     expect(h.createWebAccount).not.toHaveBeenCalled();
+  });
+
+  it("with a broker and no account, a webhook in the body still creates the account alone: no stamp, no signature, no webhook, code consumed", async () => {
+    h.topstepPlugin.isConfigured.mockReturnValue(true);
+    h.getTopstepUsername.mockReturnValue("stored-before-sign-in-existed");
+    const setupCode = printedSetupCode();
+    const res = await POST(
+      setupRequest({ account: ACCOUNT, setupCode, topstepWebhookUrl: "https://discord.example/hook" }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, accountCreated: true });
+    expect(h.createWebAccount).toHaveBeenCalledWith(ACCOUNT.username, ACCOUNT.password);
+    expect(h.setSetupConfirmedAt).not.toHaveBeenCalled();
+    expect(vi.mocked(setSetupSignature)).not.toHaveBeenCalled();
+    expect(vi.mocked(setTopstepWebhookUrl)).not.toHaveBeenCalled();
+    expect(h.activateFromSettings).not.toHaveBeenCalled();
+    expect(setupCodeMatches(setupCode)).toBe(false);
   });
 });
 

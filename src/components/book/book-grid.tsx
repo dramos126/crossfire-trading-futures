@@ -20,6 +20,8 @@ import type { CellPatch } from "@/components/book/book-account-card";
 import { DeployDialog } from "@/components/book/book-deploy-dialog";
 import { MoveDialog } from "@/components/book/book-move-dialog";
 import { ViewControls } from "@/components/privacy/view-controls";
+import { NoBrokerSentence, useNoBroker } from "@/components/settings/no-broker";
+import { NO_BROKER_COPY } from "@/lib/hooks/use-trading/auth-answer";
 import type { BookPayload, CodeBookPayload } from "@/app/api/books/route";
 import type { MovePreview } from "@/app/api/books/[id]/move/route";
 import { readBooksBody, useStatusCheckOnOpen } from "@/components/playbook/playbook-account-gates";
@@ -82,6 +84,8 @@ function playbookName(strategyKey: string): string {
 export function BookGrid({ title, subtitle }: { title?: ReactNode; subtitle?: ReactNode }) {
   const trading = useTrading();
   const token = trading.token;
+  // The books and their playbooks still draw; only the deploys are inert.
+  const noBroker = useNoBroker();
   // A broker whose live fetch failed contributes no accounts to the picker,
   // so a dropped broker looks like the account not existing. The Dashboard
   // names it; this page reads the same hook and says the same sentence.
@@ -305,13 +309,19 @@ export function BookGrid({ title, subtitle }: { title?: ReactNode; subtitle?: Re
           <div className="hidden sm:contents">{viewControls}</div>
           <button
             type="button"
-            disabled={busy || bookCards.length === 0}
+            disabled={busy || bookCards.length === 0 || noBroker}
+            title={noBroker ? NO_BROKER_COPY : undefined}
             onClick={() => openDeploy(null)}
             className="btn-emerald min-h-9 w-full rounded-md px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:w-auto"
           >
             {DEPLOY_BOOK_LABEL}
           </button>
         </div>
+        {noBroker && (
+          <p className="basis-full text-right text-[11px] text-[var(--muted)]">
+            <NoBrokerSentence />
+          </p>
+        )}
       </div>
 
       {catalogWarning && (
@@ -354,6 +364,7 @@ export function BookGrid({ title, subtitle }: { title?: ReactNode; subtitle?: Re
             card={card}
             busy={busy}
             onDeploy={openDeploy}
+            noBroker={noBroker}
             expanded={expanded}
             account={{
               onToggleExpanded: toggleExpanded,

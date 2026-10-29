@@ -37,6 +37,8 @@ import {
   useDeploymentsLoadState,
 } from "@/lib/hooks/use-strategies";
 import { useTrading } from "@/lib/hooks/use-trading/use-trading-state";
+import { NO_BROKER_COPY } from "@/lib/hooks/use-trading/auth-answer";
+import { NoBrokerSentence, useNoBroker } from "@/components/settings/no-broker";
 import { useDisplayPrivacy } from "@/components/privacy/privacy-provider";
 import { confirmActivationUnderD2 } from "@/lib/trading/activation-prompts";
 import { isEngineManagedStatus, type TickerSymbol } from "@/lib/trading/domain";
@@ -62,7 +64,8 @@ import type { StrategyModule } from "@/lib/trading/strategy-types";
  */
 
 /** The header's primary action. Inert with the reason when the playbook names
- *  no instrument — the operator is never asked for one. */
+ *  no instrument — the operator is never asked for one — and, with no broker
+ *  signed in, inert with that sentence beside it: the page is still read. */
 export function PlaybookDeployButton({
   target,
   open,
@@ -72,20 +75,28 @@ export function PlaybookDeployButton({
   open: boolean;
   onOpen: () => void;
 }) {
-  const inert = target.kind === "inert";
+  const noBroker = useNoBroker();
+  const inert = target.kind === "inert" || noBroker;
   return (
-    <button
-      type="button"
-      onClick={() => {
-        if (target.kind === "inert") return;
-        onOpen();
-      }}
-      disabled={inert || open}
-      title={target.kind === "inert" ? target.reason : undefined}
-      className="btn-emerald rounded-md px-3 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-    >
-      Deploy
-    </button>
+    <>
+      {noBroker && (
+        <span className="text-[11px] text-[var(--muted)]">
+          <NoBrokerSentence />
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={() => {
+          if (target.kind === "inert" || noBroker) return;
+          onOpen();
+        }}
+        disabled={inert || open}
+        title={target.kind === "inert" ? target.reason : noBroker ? NO_BROKER_COPY : undefined}
+        className="btn-emerald rounded-md px-3 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Deploy
+      </button>
+    </>
   );
 }
 

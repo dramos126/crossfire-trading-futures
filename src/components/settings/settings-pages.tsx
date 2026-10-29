@@ -14,6 +14,7 @@ import {
 } from "@/components/settings/settings-model";
 import { ChangePasswordBlock, SignOutBlock } from "@/components/settings/settings-sign-in-blocks";
 import { useSettingsWorkbench } from "@/components/settings/settings-workbench";
+import { NoBrokerSentence, useNoBroker } from "@/components/settings/no-broker";
 import { useTrading } from "@/lib/hooks/use-trading/use-trading-state";
 
 /**
@@ -37,6 +38,9 @@ export function SettingsConnectionsPage() {
     refreshBundle,
   } = useSettingsWorkbench();
   const { connect } = useTrading();
+  // The first broker saved on an install set up without one: resume, so the
+  // session learns there is a broker and the account list is read.
+  const noBroker = useNoBroker();
 
   return (
     <SettingsSection
@@ -56,9 +60,9 @@ export function SettingsConnectionsPage() {
           onSaved={async (updated) => {
             adoptBundle(updated);
             await refreshBundle();
-            if (schema.id === "tradovate") void connect();
+            if (schema.id === "tradovate" || noBroker) void connect();
           }}
-          onTestPassed={bundle === null ? async () => {} : refreshBundle}
+          onTestPassed={refreshBundle}
         />
       ))}
 
@@ -66,7 +70,7 @@ export function SettingsConnectionsPage() {
           which provider serves historical, which serves realtime — that a
           credential block has no equivalent of. Two block shapes under one
           page, which is coherent under the page's own framing. */}
-      {bundle !== null && token !== null && showsMarketData(mode, progress) && (
+      {token !== null && showsMarketData(mode, progress) && (
         <MarketDataBlock
           bundle={bundle}
           token={token}
@@ -77,13 +81,6 @@ export function SettingsConnectionsPage() {
           onTestPassed={refreshBundle}
         />
       )}
-
-      {bundle === null && (
-        <p className="text-[11px] leading-relaxed text-[var(--muted)]">
-          Data sources appear here once the engine is running. Nothing can probe a provider until
-          a broker connection works.
-        </p>
-      )}
     </SettingsSection>
   );
 }
@@ -91,34 +88,30 @@ export function SettingsConnectionsPage() {
 /**
  * Its own page rather than a block under Connections: risk is the operator's
  * own setting, not a property of a service. It needs a session (the route is
- * authenticated) and the account catalogue, so a first run — which has
- * neither — does not list it, and reaching it by URL says so.
+ * authenticated) and the account catalogue, so a first run and an install
+ * with no broker do not list it, and reaching it by URL says so.
  */
 export function SettingsRiskPage() {
-  const { bundle, token, mode, accountStatusCheck } = useSettingsWorkbench();
+  const { token, mode, accountStatusCheck } = useSettingsWorkbench();
   return (
     <SettingsSection
       title="Risk"
       blurb="How much each account may lose on one trade. Nothing trades without it."
     >
-      {bundle !== null && token !== null && showsRisk(mode) ? (
+      {token !== null && showsRisk(mode) ? (
         <AccountRiskBlock token={token} statusCheck={accountStatusCheck} />
       ) : (
-        <FirstRunUnavailable />
+        <PageUnavailable />
       )}
     </SettingsSection>
   );
 }
 
 export function SettingsNotificationsPage() {
-  const { bundle, token, adoptBundle, webhookInput, setWebhookInput } = useSettingsWorkbench();
+  const { bundle, token, adoptBundle } = useSettingsWorkbench();
   return (
     <SettingsSection title="Notifications" blurb="How the platform talks to you.">
-      {bundle !== null && token ? (
-        <SettingsGeneralBlock bundle={bundle} token={token} onSaved={adoptBundle} />
-      ) : (
-        <FirstRunWebhookBlock value={webhookInput} onChange={setWebhookInput} />
-      )}
+      {token !== null && <SettingsGeneralBlock bundle={bundle} token={token} onSaved={adoptBundle} />}
     </SettingsSection>
   );
 }
@@ -126,16 +119,16 @@ export function SettingsNotificationsPage() {
 /** The web sign-in: changing its password and signing this browser out.
  *  Needs a session, so a first run does not list it. */
 export function SettingsSignInPage() {
-  const { bundle, mode } = useSettingsWorkbench();
+  const { mode } = useSettingsWorkbench();
   return (
     <SettingsSection title="Sign-in" blurb="The username and password this install asks for.">
-      {bundle !== null && showsSignIn(mode) ? (
+      {showsSignIn(mode) ? (
         <>
           <ChangePasswordBlock />
           <SignOutBlock />
         </>
       ) : (
-        <FirstRunUnavailable />
+        <PageUnavailable />
       )}
     </SettingsSection>
   );
@@ -144,7 +137,7 @@ export function SettingsSignInPage() {
 /** The card titles itself, so the page carries no section header over it. */
 export function SettingsDangerZonePage() {
   const { mode } = useSettingsWorkbench();
-  return showsDangerZone(mode) ? <DangerZone /> : <FirstRunUnavailable />;
+  return showsDangerZone(mode) ? <DangerZone /> : <PageUnavailable />;
 }
 
 function SettingsSection({
@@ -172,56 +165,13 @@ function SettingsSection({
   );
 }
 
-function FirstRunUnavailable() {
+/** A page this mode does not list, reached by URL: a line, not a redirect. */
+function PageUnavailable() {
+  const { mode } = useSettingsWorkbench();
   return (
-    <p className="text-[11px] leading-relaxed text-[var(--muted)]">{FIRST_RUN_PAGE_UNAVAILABLE}</p>
+    <p className="text-[11px] leading-relaxed text-[var(--muted)]">
+      {mode === "no-broker" ? <NoBrokerSentence /> : FIRST_RUN_PAGE_UNAVAILABLE}
+    </p>
   );
 }
 
-/**
- * The webhook, on a first run with no session.
- *
- * `POST /api/settings/setup` takes it alongside the credentials, so it is the
- * one Notifications control that exists before the engine does. The
- * notifications switch is not: it writes through the authenticated route, and
- * there is no session to write with yet. The value lives in the workbench, so
- * it survives a trip to Connections to finish setup.
- */
-function FirstRunWebhookBlock({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    // Untitled, like the block it stands in for: the section header names it.
-    <section className="border border-[var(--card-border)] bg-[var(--card)] p-4 space-y-4">
-      <div className="space-y-1.5">
-        <label
-          htmlFor="first-run-webhook"
-          className="flex items-center gap-1.5 text-xs font-medium text-[var(--muted)] uppercase tracking-wider"
-        >
-          Discord Webhook URL
-          <span className="text-[10px] font-mono text-[var(--muted-secondary)] normal-case tracking-normal">
-            optional
-          </span>
-        </label>
-        <input
-          id="first-run-webhook"
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          autoComplete="off"
-          spellCheck={false}
-          placeholder="https://discord.com/api/webhooks/…"
-          className="w-full min-h-11 sm:min-h-0 border border-[var(--card-border)] bg-[var(--bg)] px-3 py-2 text-sm font-mono text-[var(--foreground)] placeholder:text-[var(--muted)] focus:outline-none focus:border-[var(--accent)] rounded-md transition-colors"
-        />
-        <p className="text-[11px] text-[var(--muted)] leading-relaxed">
-          Alerts stay off until you switch them on, so a fresh install is quiet by default. The
-          switch appears here once the engine is running.
-        </p>
-      </div>
-    </section>
-  );
-}

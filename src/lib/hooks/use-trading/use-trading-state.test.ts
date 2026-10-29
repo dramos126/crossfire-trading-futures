@@ -159,6 +159,14 @@ describe("the provider's sign-in lifecycle", () => {
     expect(hook!.token).not.toBe(first);
   });
 
+  it("signed in with no broker: connected and marked so, with no account read and no error", async () => {
+    stubServer([{ status: 200, body: { signedIn: true, engineReady: false, brokerConfigured: false } }]);
+    await mount();
+    await act(async () => hook!.connect());
+    expect(hook!).toMatchObject({ status: "connected", noBroker: true, error: null, accounts: [] });
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/accounts")).toBe(false);
+  });
+
   it("a broker that refuses puts the provider in error with a kind, not raw text for the banner", async () => {
     stubServer([{ status: 401, body: { error: "Topstep loginKey 401 errorCode 3" } }]);
     await mount();

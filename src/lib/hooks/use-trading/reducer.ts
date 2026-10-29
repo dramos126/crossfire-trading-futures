@@ -34,7 +34,7 @@ export function reducer(state: TradingState, action: Action): TradingState {
     case "CONNECTING":
       return { ...state, status: "connecting", error: null };
     case "AUTHENTICATED":
-      return { ...state, token: action.token, errorKind: null };
+      return { ...state, token: action.token, errorKind: null, noBroker: action.noBroker };
     case "ACCOUNTS_LOADED": {
       // No selection is derived here any more. The board is all-accounts, so
       // "which account am I looking at" is a filter on a surface rather than

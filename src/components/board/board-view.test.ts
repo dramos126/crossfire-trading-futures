@@ -1555,3 +1555,13 @@ describe("presentBoard — every card hidden is not nothing deployed", () => {
     ).toEqual({ body: { kind: "cards" }, warning: null, totalsReadable: true });
   });
 });
+
+describe("presentBoard — signed in with no broker", () => {
+  it("says no broker in place of the accounts, not nothing deployed, and the strip reads blind rather than $0.00", () => {
+    for (const deployments of ["idle", "loading", "ready"] as const) {
+      expect(
+        presentBoard({ connection: "connected", deployments, cardCount: 0, noBroker: true }),
+      ).toEqual({ body: { kind: "no-broker" }, warning: null, totalsReadable: false });
+    }
+  });
+});

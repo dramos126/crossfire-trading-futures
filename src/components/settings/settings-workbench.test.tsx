@@ -28,9 +28,16 @@ import {
   type SettingsPageId,
 } from "@/components/settings/settings-model";
 import type { SettingsBundle } from "@/lib/settings/parse-bundle";
-import { CHANGE_PASSWORD_LEAD } from "@/components/settings/settings-sign-in-blocks";
-import { ACCOUNT_ONLY_TITLE } from "@/components/settings/settings-workbench";
+import { CHANGE_PASSWORD_LEAD, PASSWORD_RULE_HINT } from "@/components/settings/settings-sign-in-blocks";
+import {
+  ACCOUNT_ONLY_LEAD,
+  CREATE_SIGN_IN_LABEL,
+  FIRST_RUN_LINE,
+  FIRST_RUN_TITLE,
+} from "@/components/settings/settings-workbench";
 import { PASSWORD_TOO_SHORT_PROBLEM, USERNAME_LENGTH_PROBLEM } from "@/lib/auth/web-account-rules";
+import { SETUP_CODE_HINT, SETUP_CODE_MISSING_MESSAGE } from "@/lib/auth/sign-in-wire";
+import { NO_BROKER_COPY } from "@/lib/hooks/use-trading/auth-answer";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -41,6 +48,7 @@ const state = vi.hoisted(() => ({
   trading: {
     token: "test-token" as string | null,
     status: "connected" as "connected" | "needsSetup",
+    noBroker: false,
   },
 }));
 
@@ -65,24 +73,21 @@ vi.mock("next/link", async () => {
 });
 
 const signIns = vi.hoisted(() => [] as Array<{ username: string; password: string }>);
+const connects = vi.hoisted(() => ({ count: 0, navigationsBefore: [] as number[] }));
 
 vi.mock("@/lib/hooks/use-trading/use-trading-state", () => ({
   useTrading: () => ({
     ...state.trading,
-    connect: async () => {},
+    connect: async () => {
+      connects.count += 1;
+      connects.navigationsBefore.push(state.replaced.length);
+    },
     signIn: async (username: string, password: string) => {
       signIns.push({ username, password });
       return null;
     },
     signOut: async () => {},
   }),
-}));
-
-// The cold arm's activation wait polls /api/auth for up to 30s; what is under
-// test here is the request that precedes it.
-vi.mock("@/components/settings/settings-activation", () => ({
-  ACTIVATION_TIMEOUT: "timeout",
-  pollUntilAuthed: async () => ({ ok: true }),
 }));
 
 const { SettingsWorkbench } = await import("./settings-workbench");
@@ -186,10 +191,16 @@ function bundle(over: Partial<SettingsBundle> = {}): SettingsBundle {
   };
 }
 
+/** No broker configured anywhere — a fresh install, or one set up with the
+ *  sign-in alone. */
+const SCHEMAS_NO_BROKER = SCHEMAS.map((s) => ({ ...s, isConfigured: false }));
+let schemasServed: unknown = SCHEMAS;
+
 /** The unauthenticated first-run answer: nothing stored, the schema list, and
  *  Tradovate's server-filled identity. On a fresh install no broker resolves. */
 const PREFILL = {
   hasAccount: false,
+  needsSetupCode: false,
   topstepUsername: null,
   tradovate: {
     appId: "app",
@@ -199,7 +210,7 @@ const PREFILL = {
     appVersionAuto: true,
     deviceIdAuto: true,
   },
-  brokers: SCHEMAS.map((s) => ({ ...s, isConfigured: false })),
+  brokers: SCHEMAS_NO_BROKER,
 };
 
 /** An install that stored its broker before sign-in existed. */
@@ -225,7 +236,7 @@ function stubFetch(settings: SettingsBundle) {
         method: init?.method ?? "GET",
         body: init?.body != null ? JSON.parse(init.body) : null,
       });
-      if (input === "/api/settings/schemas") return respond(SCHEMAS);
+      if (input === "/api/settings/schemas") return respond(schemasServed);
       if (input === "/api/settings/setup-prefill") return respond(prefill);
       if (input === "/api/settings/test-connection") return respond({ ok: true });
       if (input === "/api/accounts/status") {
@@ -313,14 +324,32 @@ async function type(ariaLabel: string, value: string) {
   await typeInto(container?.querySelector<HTMLInputElement>(`input[aria-label="${ariaLabel}"]`), value);
 }
 
+/** Leaving a field: React's `onBlur` listens for `focusout`. */
+async function leave(el: HTMLInputElement | null | undefined) {
+  if (!el) throw new Error("missing input");
+  await act(async () => {
+    el.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+  });
+}
+
+/** A browser with no session on an install with no sign-in account. */
+function coldFirstRun() {
+  state.trading.token = null;
+  state.trading.status = "needsSetup";
+}
+
 beforeEach(() => {
   requests.length = 0;
   signIns.length = 0;
+  connects.count = 0;
+  connects.navigationsBefore.length = 0;
   prefill = PREFILL;
+  schemasServed = SCHEMAS;
   state.replaced.length = 0;
   state.redirected.length = 0;
   state.trading.token = "test-token";
   state.trading.status = "connected";
+  state.trading.noBroker = false;
 });
 
 afterEach(async () => {
@@ -465,79 +494,122 @@ describe("a first run", () => {
     expect(state.replaced).toEqual([]);
   });
 
-  it("keeps a passing test and the typed webhook across pages, and sends both with the confirm", async () => {
-    // The cold arm: nothing resolves, so the only record that Topstep was
-    // verified is the test result in memory. A workbench per page would drop
-    // it on the trip to Notifications and the confirm would refuse again.
-    state.trading.token = null;
-    state.trading.status = "needsSetup";
+  it("on a never-confirmed install with no account, shows the sign-in card alone — no broker block, no menu", async () => {
+    coldFirstRun();
     stubFetch(bundle());
     await show("connections");
-    await fillAccount();
 
-    await type("Topstep Username", "trader");
-    await type("Topstep API Key", "key");
-    const test = container?.querySelector<HTMLButtonElement>(
-      'button[title="Authenticate against Topstep"]',
-    );
-    await click(test!);
-    expect(buttonSaying("Finish setup")!.disabled).toBe(false);
-
+    expect(headingsSaying(FIRST_RUN_TITLE)).toBe(1);
+    expect(textOf()).toContain(FIRST_RUN_LINE);
+    expect(textOf()).toContain("Password again");
+    expect(menuLinks()).toHaveLength(0);
+    for (const schema of SCHEMAS) expect(textOf()).not.toContain(schema.displayName);
+    expect(container?.querySelector('input[aria-label="Topstep Username"]')).toBeNull();
+    expect(buttonSaying("Finish setup")).toBeNull();
+    // Whichever Settings URL the guard landed on, the same screen.
     await show("notifications");
-    await typeInto(
-      container?.querySelector<HTMLInputElement>("#first-run-webhook"),
-      "https://discord.com/api/webhooks/1",
-    );
-
-    await show("connections");
-    // The account typed on the first visit survived the trip as well.
-    const confirm = buttonSaying("Finish setup");
-    expect(confirm!.disabled).toBe(false);
-    await click(confirm!);
-
-    const setup = requests.find((r) => r.url === "/api/settings/setup");
-    expect(setup?.body).toMatchObject({
-      topstepUsername: "trader",
-      topstepApiKey: "key",
-      topstepWebhookUrl: "https://discord.com/api/webhooks/1",
-      account: ACCOUNT,
-    });
+    expect(headingsSaying(FIRST_RUN_TITLE)).toBe(1);
+    expect(textOf()).not.toContain("Discord Webhook URL");
   });
 
-  it("asks for the sign-in beside the brokers, and refuses the confirm until it is valid", async () => {
-    state.trading.token = null;
-    state.trading.status = "needsSetup";
+  it("says what is wrong with a field only once it has been left, and holds the button until all are right", async () => {
+    coldFirstRun();
     stubFetch(bundle());
     await show("connections");
-    expect(textOf()).toContain("Password again");
+    const button = buttonSaying(CREATE_SIGN_IN_LABEL)!;
+    expect(button.disabled).toBe(true);
+    // The length rule is help text before anything is typed, not a refusal.
+    expect(textOf()).toContain(PASSWORD_RULE_HINT);
+    expect(textOf()).not.toContain(USERNAME_LENGTH_PROBLEM);
+
+    const password = container?.querySelector<HTMLInputElement>("#account-password");
+    await typeInto(password, "short");
+    expect(textOf()).not.toContain(PASSWORD_TOO_SHORT_PROBLEM);
+    await leave(password);
+    expect(textOf()).toContain(PASSWORD_TOO_SHORT_PROBLEM);
+    expect(password?.getAttribute("aria-invalid")).toBe("true");
+
+    await leave(container?.querySelector<HTMLInputElement>("#account-username"));
     expect(textOf()).toContain(USERNAME_LENGTH_PROBLEM);
 
-    await typeInto(container?.querySelector<HTMLInputElement>("#account-username"), "operator");
-    await typeInto(container?.querySelector<HTMLInputElement>("#account-password"), "short");
-    await typeInto(container?.querySelector<HTMLInputElement>("#account-confirm"), "short");
-    expect(textOf()).toContain(PASSWORD_TOO_SHORT_PROBLEM);
-    expect(buttonSaying("Finish setup")!.disabled).toBe(true);
+    await fillAccount();
+    expect(textOf()).not.toContain(PASSWORD_TOO_SHORT_PROBLEM);
+    expect(button.disabled).toBe(false);
   });
 
-  it("on an install whose broker already resolves, creates the sign-in alone and signs in with it", async () => {
-    state.trading.token = null;
-    state.trading.status = "needsSetup";
-    prefill = PREFILL_BROKER_RESOLVES;
+  it("Create sign-in sends the account alone, signs in with it and lands on /", async () => {
+    coldFirstRun();
     stubFetch(bundle());
     await show("connections");
-
-    expect(headingsSaying(ACCOUNT_ONLY_TITLE)).toBe(1);
-    // No credential blocks and no menu: the broker is not this page's question.
-    expect(menuLinks()).toHaveLength(0);
-    expect(container?.querySelector('input[aria-label="Topstep Username"]')).toBeNull();
-
     await fillAccount();
-    await click(buttonSaying("Finish setup")!);
+    await click(buttonSaying(CREATE_SIGN_IN_LABEL)!);
 
     const setup = requests.filter((r) => r.url === "/api/settings/setup");
     expect(setup.map((r) => r.body)).toEqual([{ account: ACCOUNT }]);
     expect(signIns).toEqual([ACCOUNT]);
     expect(state.replaced).toEqual(["/"]);
+  });
+
+  it("when another browser made the account first (409), re-reads the status before it leaves for /", async () => {
+    coldFirstRun();
+    stubFetch(bundle());
+    const served = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string, init?: { method?: string; body?: string }) => {
+        if (input !== "/api/settings/setup") return served(input, init as RequestInit);
+        requests.push({ url: input, method: init?.method ?? "GET", body: null });
+        return { ok: false, status: 409, json: async () => ({ error: "Already configured" }) } as unknown as Response;
+      }),
+    );
+    await show("connections");
+    await fillAccount();
+    await click(buttonSaying(CREATE_SIGN_IN_LABEL)!);
+
+    expect(signIns).toEqual([]);
+    expect(connects.navigationsBefore).toEqual([0]);
+    expect(state.replaced).toEqual(["/"]);
+  });
+
+  it("on an install whose broker already resolves, still asks for the sign-in alone, says the broker is set, and signs in", async () => {
+    coldFirstRun();
+    prefill = PREFILL_BROKER_RESOLVES;
+    stubFetch(bundle());
+    await show("connections");
+
+    expect(textOf()).toContain(ACCOUNT_ONLY_LEAD);
+    expect(textOf()).not.toContain(FIRST_RUN_LINE);
+    expect(menuLinks()).toHaveLength(0);
+    expect(container?.querySelector('input[aria-label="Topstep Username"]')).toBeNull();
+
+    await fillAccount();
+    await click(buttonSaying(CREATE_SIGN_IN_LABEL)!);
+
+    const setup = requests.filter((r) => r.url === "/api/settings/setup");
+    expect(setup.map((r) => r.body)).toEqual([{ account: ACCOUNT }]);
+    expect(signIns).toEqual([ACCOUNT]);
+    // The guard brings a never-confirmed install back with a session, where
+    // "a first run … writes setupConfirmedAt" above takes over.
+    expect(state.replaced).toEqual(["/"]);
+  });
+
+  it("asks an upgraded install for the setup code, says where it is, and sends it with the account", async () => {
+    coldFirstRun();
+    prefill = { ...PREFILL_BROKER_RESOLVES, needsSetupCode: true };
+    stubFetch(bundle());
+    await show("connections");
+
+    expect(textOf()).toContain(SETUP_CODE_HINT);
+    await fillAccount();
+    const button = buttonSaying(CREATE_SIGN_IN_LABEL)!;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toBe(SETUP_CODE_MISSING_MESSAGE);
+
+    await typeInto(container?.querySelector<HTMLInputElement>("#account-setup-code"), "c0de");
+    expect(button.disabled).toBe(false);
+    await click(button);
+    const setup = requests.filter((r) => r.url === "/api/settings/setup");
+    expect(setup.map((r) => r.body)).toEqual([{ account: ACCOUNT, setupCode: "c0de" }]);
   });
 
   it("holds Market Data back until a broker has passed a test, not merely saved one", async () => {
@@ -700,14 +772,51 @@ describe("the phone layout", () => {
     });
   }
 
-  it("gives the first run's webhook field the same height below sm", async () => {
-    state.trading.token = null;
-    state.trading.status = "needsSetup";
+  it("gives the first run's sign-in fields the same height below sm", async () => {
+    coldFirstRun();
     stubFetch(bundle());
-    await show("notifications");
-    expect(classesOf(container!.querySelector("#first-run-webhook"))).toEqual(
-      expect.arrayContaining(["min-h-11", "sm:min-h-0"]),
-    );
+    await show("connections");
+    for (const id of ["#account-username", "#account-password", "#account-confirm"]) {
+      expect(classesOf(container!.querySelector(id))).toEqual(expect.arrayContaining(["min-h-11", "sm:min-h-0"]));
+    }
+  });
+});
+
+// ── Signed in with no broker ────────────────────────────────────────────
+
+describe("an install signed in with no broker", () => {
+  beforeEach(() => {
+    schemasServed = SCHEMAS_NO_BROKER;
+    state.trading.noBroker = true;
+  });
+
+  it("renders Settings with no redirect: Connections as today, and Sign-in listed; Risk and Danger Zone wait", async () => {
+    stubFetch(bundle({ setupConfirmedAt: CONFIRMED, hasApiKey: false, topstepUsername: null }));
+    await show("connections");
+    expect(menuLinks().map((a) => a.textContent)).toEqual(["Connections", "Notifications", "Sign-in"]);
+    expect(container?.querySelector('input[aria-label="Topstep Username"]')).not.toBeNull();
+    expect(buttonSaying("Finish setup")).toBeNull();
+    expect(state.replaced).toEqual([]);
+  });
+
+  it("answers Risk and Danger Zone reached by URL with the no-broker sentence, and checks no broker", async () => {
+    stubFetch(bundle({ setupConfirmedAt: CONFIRMED }));
+    await show("risk");
+    expect(textOf()).toContain(NO_BROKER_COPY);
+    await show("danger-zone");
+    expect(textOf()).toContain(NO_BROKER_COPY);
+    expect(requests.some((r) => r.url === "/api/accounts/status" || r.url === "/api/accounts/risk")).toBe(false);
+  });
+
+  it("resumes the session after the first broker is saved, so the app learns it has one", async () => {
+    stubFetch(bundle({ setupConfirmedAt: CONFIRMED, hasApiKey: false, topstepUsername: null, topstepCredsValidated: false }));
+    await show("connections");
+    await type("Topstep Username", "trader");
+    const block = container!.querySelector('input[aria-label="Topstep Username"]')!.closest("section")!;
+    const save = Array.from(block.querySelectorAll("button")).find((b) => b.textContent === "Save")!;
+    await click(save);
+    expect(requests.some((r) => r.url === "/api/settings" && r.method === "PUT")).toBe(true);
+    expect(connects.count).toBe(1);
   });
 });
 

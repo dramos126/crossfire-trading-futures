@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { authFailureCopy, rateLimitedFailure, readAuthAnswer, VERIFY_BUSY_COPY } from "./auth-answer";
+import {
+  authFailureCopy,
+  NO_BROKER_COPY,
+  rateLimitedFailure,
+  readAuthAnswer,
+  VERIFY_BUSY_COPY,
+} from "./auth-answer";
 
 function copyOf429(body: unknown): string {
   const answer = readAuthAnswer(429, body);
@@ -30,5 +36,21 @@ describe("a 429's sentence says whose lockout it is", () => {
       retryAfterSeconds: 45,
       scope: "address",
     });
+  });
+});
+
+describe("a signed-in answer says whether there is a broker", () => {
+  it("reads only an explicit false as no broker", () => {
+    const read = (body: unknown) => readAuthAnswer(200, body);
+    expect(read({ signedIn: true, engineReady: false, brokerConfigured: false })).toMatchObject({
+      kind: "signed-in",
+      brokerConfigured: false,
+    });
+    expect(read({ signedIn: true, engineReady: true, brokerConfigured: true })).toMatchObject({ brokerConfigured: true });
+    expect(read({ signedIn: true, engineReady: true })).toMatchObject({ brokerConfigured: true });
+  });
+
+  it("words a missing broker the same way on the error banner as everywhere else", () => {
+    expect(authFailureCopy({ kind: "broker-not-configured" })).toBe(NO_BROKER_COPY);
   });
 });

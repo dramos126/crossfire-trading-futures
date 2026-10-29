@@ -1371,7 +1371,9 @@ export type BoardBody =
   | { kind: "empty" }
   /** Deployments exist and every card is a switched-off book's, so hidden. */
   | { kind: "all-off" }
-  | { kind: "unavailable" };
+  | { kind: "unavailable" }
+  /** Signed in with no broker: no account can be listed, by design. */
+  | { kind: "no-broker" };
 
 export interface BoardPresentation {
   body: BoardBody;
@@ -1460,6 +1462,9 @@ export function presentBoard(input: {
   cardCount: number;
   /** Cards `boardVisibility` left out. Only read when none is on screen. */
   hiddenBookCount?: number;
+  /** The session has no broker. With no card on screen the body says so in
+   *  place of the account list, and the strip reads blind, not `$0.00`. */
+  noBroker?: boolean;
 }): BoardPresentation {
   const connectionBroken = input.connection === "error";
   const listBroken = input.deployments === "failed";
@@ -1483,6 +1488,9 @@ export function presentBoard(input: {
           : null,
       totalsReadable,
     };
+  }
+  if (input.noBroker === true) {
+    return { body: { kind: "no-broker" }, warning: null, totalsReadable: false };
   }
   if (broken) {
     return {

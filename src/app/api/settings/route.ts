@@ -535,6 +535,7 @@ export async function PUT(request: NextRequest) {
   const prevTradovatePassword = getTradovatePassword();
   const prevTradovateApiSecret = getTradovateApiSecret();
   const prevTradovateDeviceId = getTradovateDeviceId();
+  const brokerWasConfigured = brokerRegistry.allPlugins().some((p) => p.isConfigured());
 
   // Phase 8 step 2 trade-off: per-plugin cred writes happen OUTSIDE the
   // SQL txn that previously wrapped the whole PUT body. The Tier 1.1
@@ -652,6 +653,13 @@ export async function PUT(request: NextRequest) {
         `Tradovate hot-reload after settings save failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     });
+  }
+
+  // An install set up with the sign-in alone booted with no broker, in
+  // passive-no-creds mode; the first broker saved here is what wakes it, as
+  // first run's confirm used to. Fire-and-forget, logged by the boot itself.
+  if (!brokerWasConfigured && brokerRegistry.allPlugins().some((p) => p.isConfigured())) {
+    void handle.activateFromSettings().catch(() => {});
   }
 
   try {

@@ -66,6 +66,7 @@ import {
 } from "./book-grid-model";
 import type { MovePreview } from "@/app/api/books/[id]/move/route";
 import { accountHasBookRefusal } from "@/lib/trading/books/refusals";
+import { NO_BROKER_COPY } from "@/lib/hooks/use-trading/auth-answer";
 
 // Any sentence: the grid renders the payload's verbatim. The real constant's
 // module reads the database, which this jsdom file does not load.
@@ -106,6 +107,7 @@ const trading = vi.hoisted(() => ({
   deployments: [],
   accounts: [] as unknown[],
   accountCatalogWarning: null as string | null,
+  noBroker: false,
 }));
 
 vi.mock("@/lib/hooks/use-trading/use-trading-state", () => ({
@@ -114,6 +116,7 @@ vi.mock("@/lib/hooks/use-trading/use-trading-state", () => ({
     accounts: trading.accounts,
     reloadAccounts: trading.reloadAccounts,
     accountCatalogWarning: trading.accountCatalogWarning,
+    noBroker: trading.noBroker,
   }),
 }));
 
@@ -1145,7 +1148,27 @@ describe("the Books screen", () => {
   afterEach(() => {
     trading.accounts = [];
     trading.accountCatalogWarning = null;
+    trading.noBroker = false;
     vi.unstubAllGlobals();
+  });
+
+  it("with no broker, still draws the code books and their playbooks, and disables both deploys with the sentence", async () => {
+    trading.noBroker = true;
+    stubBooks((url) => (url === "/api/books" ? { books: [], codeBooks: [CASH], accounts: [] } : {}));
+
+    await mount(<BookGrid />);
+    await settle();
+
+    expect(container!.querySelector("section[aria-label='Cash'] header")!.textContent).toContain("1 playbook");
+    expect(container!.textContent).toContain("MNQ");
+    for (const label of [DEPLOY_BOOK_LABEL, deployBookToLabel("Cash")]) {
+      const button = buttonWith(label)!;
+      expect(button.disabled).toBe(true);
+      expect(button.title).toBe(NO_BROKER_COPY);
+    }
+    // Said on screen, not only in the tooltips.
+    expect(container!.textContent!.split(NO_BROKER_COPY).length - 1).toBe(2);
+    expect(container!.querySelector("[role='dialog']")).toBeNull();
   });
 
   it("says when a broker did not answer, on the page and above the Deploy dialog's account list", async () => {

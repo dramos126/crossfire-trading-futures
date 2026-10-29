@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSystemHealth } from "@/lib/hooks/use-system-health";
 import { isProductionEnv } from "@/lib/env";
 import { PulseDot } from "@/components/pulse-dot";
+import { TONE_TO_DOT } from "@/components/top-nav";
 
 /**
  * Fixed bottom rail — 28px on a phone, 32px from `sm` up. Carries the same
@@ -28,13 +29,7 @@ const IS_NON_PROD = !isProductionEnv();
 
 export function StatusRail() {
   const { detail, pillLabel, pillTone, pulsing } = useSystemHealth();
-
-  const dotColor =
-    pillTone === "ok"
-      ? "bg-[var(--success)]"
-      : pillTone === "warn"
-        ? "bg-[var(--warning)]"
-        : "bg-[var(--danger)]";
+  const dotColor = TONE_TO_DOT[pillTone];
 
   return (
     <footer className="fixed bottom-0 inset-x-0 z-20 h-7 sm:h-8 bg-[var(--sidebar)] border-t border-[var(--sidebar-border)]">

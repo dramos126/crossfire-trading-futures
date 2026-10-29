@@ -36,12 +36,17 @@ const LOGGED_ADDRESS_MAX_CHARS = 64;
 //    still a session, and the broker check runs as it does on sign-in. It
 //    mints nothing, so a reload costs no `app_session` row.
 //
-// Before either: `503 { needsSetup }` when no broker is configured anywhere,
-// `503 { needsAccount }` when no sign-in account exists yet. Both send the
-// browser to first run on the Settings page, which is where each is fixed.
+// Before either, with no sign-in account yet: `503 { needsSetup }` when no
+// broker is configured anywhere, `503 { needsAccount }` when one is. Both send
+// the browser to first run on the Settings page.
 //
-// The broker check is today's: any configured broker authenticating is
-// enough. Topstep goes first through the same `getToken()` the engine uses,
+// **With no broker configured the pair alone signs in** (2026-10-29): first run
+// asks only for the sign-in, and the install is browsed until a broker is
+// connected in Settings. The answer says `brokerConfigured: false`, and there
+// is no broker check to run because there is nothing that could trade.
+//
+// The broker check is otherwise today's: any configured broker authenticating
+// is enough. Topstep goes first through the same `getToken()` the engine uses,
 // so a cold cache cannot double-mint and kick the engine's session.
 // Tradovate is asked for a *live* token, not a client: its plugin keeps
 // `_client` through an auth failure, so a non-null client once handed a
@@ -54,11 +59,11 @@ export async function POST(request: NextRequest) {
   const tradovate = brokerRegistry.getPlugin("tradovate") as TradovateBrokerPlugin | null;
   const topstepConfigured = topstep?.isConfigured() === true;
   const tradovateConfigured = tradovate?.isConfigured() === true;
-  if (!topstepConfigured && !tradovateConfigured) {
-    return NextResponse.json({ needsSetup: true }, { status: 503 });
-  }
+  const brokerConfigured = topstepConfigured || tradovateConfigured;
   if (!hasWebAccount()) {
-    return NextResponse.json({ needsAccount: true }, { status: 503 });
+    return NextResponse.json(brokerConfigured ? { needsAccount: true } : { needsSetup: true }, {
+      status: 503,
+    });
   }
 
   if (parsed.credentials === null) {
@@ -73,17 +78,21 @@ export async function POST(request: NextRequest) {
     if (refused) return refused;
   }
 
-  const brokerFailure = await authenticateBroker(
-    topstepConfigured,
-    tradovateConfigured ? tradovate : null,
-  );
-  if (brokerFailure !== null) {
-    const status = brokerFailure.message.includes("Missing TOPSTEP") ? 500 : 401;
-    return NextResponse.json({ error: brokerFailure.message }, { status });
+  let body: SignedInBody;
+  if (brokerConfigured) {
+    const brokerFailure = await authenticateBroker(
+      topstepConfigured,
+      tradovateConfigured ? tradovate : null,
+    );
+    if (brokerFailure !== null) {
+      const status = brokerFailure.message.includes("Missing TOPSTEP") ? 500 : 401;
+      return NextResponse.json({ error: brokerFailure.message }, { status });
+    }
+    const hubsReady = await handle.areHubsReady();
+    body = { signedIn: true, engineReady: hubsReady === true, brokerConfigured: true };
+  } else {
+    body = { signedIn: true, engineReady: false, brokerConfigured: false };
   }
-
-  const hubsReady = await handle.areHubsReady();
-  const body: SignedInBody = { signedIn: true, engineReady: hubsReady === true };
   const response = NextResponse.json(body);
   if (parsed.credentials !== null) {
     setSessionCookie(response, createSession(), requestIsHttps(request));

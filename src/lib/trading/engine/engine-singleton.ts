@@ -7,6 +7,7 @@ import { hydrateRings, startEngineLogStore, clearPersistedLogs } from "@/lib/db/
 import { setTradeWriteListener } from "@/lib/db/trades";
 import { peekBroadcaster } from "@/lib/realtime/broadcaster-singleton";
 import { holdsLease, reportLeaseRefused } from "@/lib/db/lease";
+import { invalidateSettingsCache } from "@/lib/db/settings-cache";
 import { EngineNotInThisProcessError, runsEngine } from "@/lib/role";
 // Installs the log pipe's ring, store and escalation sinks at import, so they
 // exist before any engine line is emitted; the handle imports it too.
@@ -56,6 +57,8 @@ interface EngineGlobalState {
    * trading a restart's whole history for one boot line.
    */
   hydrated: boolean;
+  /** The wake in flight, shared by every caller until it settles. */
+  activation: Promise<void> | null;
 }
 
 const GLOBAL_KEY = "__topstepEngineState__" as const;
@@ -69,6 +72,7 @@ function state(): EngineGlobalState {
       enginePromise: null,
       signalr: null,
       hydrated: false,
+      activation: null,
     };
   }
   return g[GLOBAL_KEY]!;
@@ -410,9 +414,16 @@ export function getEngineIfReady(): TradingEngine | null {
  *
  * Idempotent: if the engine is already running, the helper returns
  * `{ kind: "already-running" }` and we drop out without calling
- * `eng.start()` a second time. Concurrency-safe via the singleton's
- * `enginePromise` funnel — two parallel activations both await the
- * same construction.
+ * `eng.start()` a second time. **Single-flight**: a wake already in flight
+ * is the answer to every call until it settles. `enginePromise` funnels only
+ * the construction; two boot passes side by side would each run
+ * `prepareEngineProcess` — the fan-out twice, and a Tradovate login more
+ * against a two-session budget.
+ *
+ * It drops this process's settings cache first. In the split the call is
+ * relayed to the engine process, whose cache still holds the empty Topstep
+ * pair it read at its no-credentials boot; the web process wrote the new
+ * one, and only its own cache was cleared.
  *
  * `rethrowAllowlistFailure: true` makes the helper **return** a
  * `staging-allowlist-empty` result instead of throwing it; this function
@@ -423,12 +434,22 @@ export function getEngineIfReady(): TradingEngine | null {
  * identically; it is the option to branch on the kind, unexercised.
  *
  * Either way the reason reaches an operator through the boot helper's log
- * line only. The only caller — the setup route — fire-and-forgets this
- * call and its catch logs nothing, so the wizard learns nothing beyond its
- * /api/auth poll timing out. Surfacing the reason in the wizard is not
- * wired up.
+ * line only. Both callers — the setup route's credential confirm and
+ * `PUT /api/settings` saving the first broker — fire-and-forget this call
+ * and their catches log nothing, so the browser learns nothing beyond its
+ * /api/auth poll. Surfacing the reason there is not wired up.
  */
-export async function activateFromSettings(): Promise<void> {
+export function activateFromSettings(): Promise<void> {
+  const s = state();
+  if (s.activation) return s.activation;
+  const run = runActivation().finally(() => {
+    s.activation = null;
+  });
+  s.activation = run;
+  return run;
+}
+
+async function runActivation(): Promise<void> {
   // The lease itself is taken, or refused, by the boot sequence below — this
   // door is how a first-run install that never booted comes to hold it.
   if (!runsEngine()) {
@@ -438,6 +459,7 @@ export async function activateFromSettings(): Promise<void> {
     );
     throw new EngineNotInThisProcessError("activateFromSettings()");
   }
+  invalidateSettingsCache();
   const { runBootSequence } = await import("@/lib/trading/engine/boot/boot-engine");
   const result = await runBootSequence({ rethrowAllowlistFailure: true });
   if (result.kind === "staging-allowlist-empty" || result.kind === "error") {

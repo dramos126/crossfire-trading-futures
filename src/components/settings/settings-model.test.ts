@@ -37,8 +37,26 @@ describe("what a first run is", () => {
     // The common first run has working credentials the whole time — they come
     // from the environment on an empty database. `setup_confirmed_at` is what
     // `<SetupGuard>` reads and therefore the only thing that decides this.
-    expect(resolveSettingsMode(null)).toBe("first-run");
-    expect(resolveSettingsMode("2026-09-03T12:00:00.000Z")).toBe("configured");
+    expect(resolveSettingsMode(null, true)).toBe("first-run");
+    expect(resolveSettingsMode("2026-09-03T12:00:00.000Z", true)).toBe("configured");
+  });
+
+  it("is over once confirmed even with no broker — that install is browsed, not set up again", () => {
+    expect(resolveSettingsMode("2026-10-29T12:00:00.000Z", false)).toBe("no-broker");
+  });
+});
+
+describe("an install signed in with no broker", () => {
+  it("lists Connections, Notifications and Sign-in; Risk and Danger Zone wait for a broker", () => {
+    expect(settingsPagesFor("no-broker").map((p) => p.id)).toEqual([
+      "connections",
+      "notifications",
+      "sign-in",
+    ]);
+  });
+
+  it("shows Connections as a configured install does, Market Data included", () => {
+    expect(showsMarketData("no-broker", [broker()])).toBe(true);
   });
 });
 
@@ -81,10 +99,10 @@ describe("the Settings menu", () => {
     ]);
   });
 
-  it("lands /settings on a page the menu lists in both modes", () => {
+  it("lands /settings on a page the menu lists in every mode", () => {
     // The guard redirects to `/settings`; landing on a page a first run hides
     // would put the operator somewhere the menu does not mark.
-    for (const mode of ["first-run", "configured"] as const) {
+    for (const mode of ["first-run", "no-broker", "configured"] as const) {
       expect(settingsPagesFor(mode).map((p) => p.href)).toContain(SETTINGS_LANDING_HREF);
     }
   });

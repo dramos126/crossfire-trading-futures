@@ -53,18 +53,15 @@ vi.mock("@/lib/db/settings", () => ({
   getTopstepUsername: vi.fn().mockReturnValue(null),
   getTopstepWebhookUrl: vi.fn().mockReturnValue(null),
   getNotificationsEnabled: vi.fn().mockReturnValue(false),
+  getDatabentoApiKey: vi.fn().mockReturnValue(null),
+  getMarketDataHistoricalProvider: vi.fn().mockReturnValue(null),
+  getMarketDataRealtimeProvider: vi.fn().mockReturnValue(null),
 }));
 
-vi.mock("@/lib/db/settings-cache", () => ({
-  resolveTopstepWebhookUrl: vi.fn().mockReturnValue(null),
-  // The two the Topstep plugin's `isConfigured()` reads. Null keeps this an
-  // unconfigured Topstep, which is what lets `getEngine()` run here without
-  // a client, a token or a hub.
-  resolveTopstepUsername: vi.fn().mockReturnValue(null),
-  resolveTopstepApiKey: vi.fn().mockReturnValue(null),
-  invalidateSettingsCache: vi.fn(),
-  clearCachedToken: vi.fn(),
-}));
+// The real settings cache over the mocked getters above: the Topstep pair
+// reads null, which keeps this an unconfigured Topstep and lets `getEngine()`
+// run here without a client, a token or a hub — and the wake's test can show
+// a cache warmed at a no-credentials boot being dropped.
 
 vi.mock("@/lib/db/deployments", () => ({
   getDeployment: vi.fn(),
@@ -243,6 +240,8 @@ import {
 import { readTradovateCredentialsFromDb, TradovateClient } from "@/lib/brokers/tradovate/client";
 import { BrokerRegistry } from "@/lib/trading/broker-access/broker-registry";
 import { brokerRegistry } from "@/lib/brokers/registry-singleton";
+import { getTopstepUsername } from "@/lib/db/settings";
+import { invalidateSettingsCache, resolveTopstepUsername } from "@/lib/db/settings-cache";
 import type { TradovateBrokerPlugin } from "@/lib/brokers/tradovate/index";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -766,5 +765,55 @@ describe("an engine-role process without the lease builds nothing", () => {
 
     await expect(getEngine()).resolves.toBe(engine);
     expect(LEASE.reportLeaseRefused).not.toHaveBeenCalled();
+  });
+});
+
+describe("activateFromSettings — the first-broker wake", () => {
+  beforeEach(() => {
+    BOOT.runBootSequence.mockReset();
+    invalidateSettingsCache();
+  });
+
+  afterEach(() => {
+    vi.mocked(getTopstepUsername).mockReturnValue(null);
+    invalidateSettingsCache();
+  });
+
+  it("runs one boot pass for two overlapping wakes, and a later wake runs its own", async () => {
+    let finishBoot: () => void = () => {};
+    BOOT.runBootSequence.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        finishBoot = () => resolve({ kind: "already-running" });
+      }),
+    );
+
+    const first = activateFromSettings();
+    const second = activateFromSettings();
+    expect(second).toBe(first);
+    await vi.waitFor(() => expect(BOOT.runBootSequence).toHaveBeenCalledTimes(1));
+
+    finishBoot();
+    await Promise.all([first, second]);
+    expect(BOOT.runBootSequence).toHaveBeenCalledTimes(1);
+
+    BOOT.runBootSequence.mockResolvedValueOnce({ kind: "already-running" });
+    await activateFromSettings();
+    expect(BOOT.runBootSequence).toHaveBeenCalledTimes(2);
+  });
+
+  it("boots on credentials another process saved after this one cached none", async () => {
+    // The engine process's no-credentials boot warmed its cache with null.
+    expect(resolveTopstepUsername()).toBeNull();
+    // The web process writes the pair to the shared database.
+    vi.mocked(getTopstepUsername).mockReturnValue("saved-elsewhere");
+
+    let seenAtBoot: string | null = null;
+    BOOT.runBootSequence.mockImplementationOnce(async () => {
+      seenAtBoot = resolveTopstepUsername();
+      return { kind: "already-running" };
+    });
+    await activateFromSettings();
+
+    expect(seenAtBoot).toBe("saved-elsewhere");
   });
 });

@@ -18,14 +18,15 @@ import {
   connectionWarning,
   DISCONNECTED_COPY,
   ENTRY_HOLD_DETAIL,
+  NO_BROKER_PILL,
   parseMarketHub,
   parseSeamHealth,
   useSystemHealth,
   type SystemHealth,
 } from "./use-system-health";
 import {
-  BROKER_NOT_CONFIGURED_COPY,
   BROKER_REFUSED_COPY,
+  NO_BROKER_COPY,
   UNREACHABLE_COPY,
   authFailureCopy,
   readAuthAnswer,
@@ -41,6 +42,7 @@ const trading = vi.hoisted(() => ({
     errorKind: "broker-refused" as string | null,
     token: null as string | null,
     live: false,
+    noBroker: false,
     connect: async () => {},
   },
 }));
@@ -151,7 +153,7 @@ describe("the banner's words — operator copy, never the server's text", () => 
     );
     expect(failureOf(429, { rateLimited: true, retryAfterSeconds: 45 })).toMatch(/in 45 seconds\.$/);
     expect(failureOf(500, { error: "Missing TOPSTEP_USERNAME or TOPSTEP_API_KEY" })).toBe(
-      BROKER_NOT_CONFIGURED_COPY,
+      NO_BROKER_COPY,
     );
     expect(failureOf(401, { error: "Tradovate authentication failed" })).toBe(BROKER_REFUSED_COPY);
     expect(failureOf(502, null)).toBe(UNREACHABLE_COPY);
@@ -275,5 +277,19 @@ describe("the pill reads the pushed status and polls nothing of its own", () => 
       await vi.advanceTimersByTimeAsync(60_000);
     });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("reads No broker in the muted tone, with no banner, even over a degraded frame", async () => {
+    trading.value = { ...trading.value, status: "connected", errorKind: null, token: "s1", live: false, noBroker: true };
+    root = createRoot(document.createElement("div"));
+    await act(async () => root!.render(createElement(Probe)));
+    await act(async () =>
+      applyEngineStatus({
+        running: false,
+        marketHub: { mode: "passive", autoRetry: false, lastDisconnectReason: null },
+        health: { marketData: { realtime: { state: "down", reason: null } }, degraded: true, frozen: ["entries"] },
+      }),
+    );
+    expect(latest).toMatchObject({ pillLabel: NO_BROKER_PILL, pillTone: "muted", warning: null });
   });
 });

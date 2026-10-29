@@ -53,8 +53,11 @@ const handle = engineHandle();
  * sign-in existed, or from the environment) a body with no broker fields
  * creates the account alone and touches nothing else — and any body on such
  * an install must carry `setupCode`, the one-time code the process printed
- * to stdout (`src/lib/auth/setup-code.ts`). Either way a second account
- * cannot be made here: the first check is that none exists.
+ * to stdout (`src/lib/auth/setup-code.ts`). On an install with no broker, a
+ * body with no broker fields is the whole first run: the account is created
+ * and setup confirmed, and the browser signs in with no broker to browse the
+ * app. Either way a second account cannot be made here: the first check is
+ * that none exists.
  *
  * Side-effects on success:
  *  - Write topstep_username + topstep_api_key (+ optional webhook URL)
@@ -198,17 +201,16 @@ export async function POST(request: NextRequest) {
   // account existed, or from the environment — creates the account alone.
   // It writes no credential, so the drive-by guard below has nothing to
   // protect here; the account check and the setup code above are its gate.
-  if (brokerConfigured && username === null && tradovate === null && webhook === null) {
+  // A webhook in the body is not written: that install edits it signed in.
+  if (brokerConfigured && username === null && tradovate === null) {
     return createAccountOnly(account);
   }
 
-  // The Save gate: at least one broker. This is the rule that used to
-  // read "Topstep, plus Tradovate if you like".
-  if (username === null && tradovate === null) {
-    return NextResponse.json(
-      { error: "Configure at least one broker — Topstep, Tradovate, or both." },
-      { status: 400 },
-    );
+  // A fresh install's first run is the sign-in alone (2026-10-29): the
+  // account, and the confirm that clears the guard. Brokers are connected
+  // later on the signed-in Settings page, so there is nothing to activate.
+  if (!brokerConfigured && username === null && tradovate === null) {
+    return createAccountAndConfirm(account, webhook);
   }
 
   // Gate-save: the wizard's Test Connection button persists a sha256 of
@@ -395,6 +397,56 @@ async function createAccountOnly(account: AccountInput): Promise<NextResponse> {
   }
   consumeSetupCode();
   return NextResponse.json({ ok: true, accountCreated: true });
+}
+
+/** First run on an install with no broker: the stamp the guard reads, then the
+ *  account. The signature records the absence, as a Tradovate-only setup's
+ *  does, so the first credential save recomputes it.
+ *
+ *  Stamp first: an account written ahead of a failed stamp closes this route
+ *  and leaves Settings' first-run mode, which will not confirm without a
+ *  broker, as the only way on. A stamp with no account is inert — `/api/auth`
+ *  answers needsSetup until an account exists — and a retry writes it again. */
+async function createAccountAndConfirm(
+  account: AccountInput,
+  webhook: string | null,
+): Promise<NextResponse> {
+  let confirmedAt: string;
+  try {
+    confirmedAt = getDb().transaction(() => {
+      if (webhook !== null) setTopstepWebhookUrl(webhook);
+      const now = new Date().toISOString();
+      setSetupConfirmedAt(now);
+      setSetupSignature(
+        computeConfigSignature({
+          username: null,
+          hasDbKey: false,
+          hasEnvKey: (process.env.TOPSTEP_API_KEY ?? "").length > 0,
+          webhookUrl: webhook ?? (process.env.TRADE_NOTIFIER_WEBHOOK_URL ?? null),
+        }),
+      );
+      return now;
+    })();
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed to write setup" },
+      { status: 500 },
+    );
+  }
+  if (webhook !== null) invalidateSettingsCache("topstep_webhook_url");
+  let created: Awaited<ReturnType<typeof createWebAccount>>;
+  try {
+    created = await createWebAccount(account.username, account.password);
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed to create the sign-in account" },
+      { status: 500 },
+    );
+  }
+  if (!created.ok) {
+    return NextResponse.json({ error: "Already configured" }, { status: 409 });
+  }
+  return NextResponse.json({ ok: true, accountCreated: true, setupConfirmedAt: confirmedAt });
 }
 
 /** The code `ensureSetupCode` printed, compared under the sign-in limiter —

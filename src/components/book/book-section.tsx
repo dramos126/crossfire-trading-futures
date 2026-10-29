@@ -10,6 +10,8 @@ import {
 } from "@/components/book/book-grid-model";
 import { LINK_BUTTON, PlaybookChips } from "@/components/book/book-controls";
 import { AccountCard, type AccountCardProps } from "@/components/book/book-account-card";
+import { NoBrokerSentence } from "@/components/settings/no-broker";
+import { NO_BROKER_COPY } from "@/lib/hooks/use-trading/auth-answer";
 
 /**
  * One book's section: its name and counts as the heading, then a card per
@@ -31,9 +33,11 @@ export interface BookSectionProps {
   account: Omit<AccountCardProps, "row" | "expanded">;
   /** The ids of the account cards drawn open; the rest fold onto their header. */
   expanded: ReadonlySet<string>;
+  /** Signed in with no broker: the deploy link is inert and says why. */
+  noBroker?: boolean;
 }
 
-export function BookSection({ card, busy, onDeploy, account, expanded }: BookSectionProps) {
+export function BookSection({ card, busy, onDeploy, account, expanded, noBroker = false }: BookSectionProps) {
   const [open, setOpen] = useState(false);
   const unbooked = card.key == null;
   const empty = card.accounts.length === 0;
@@ -69,14 +73,22 @@ export function BookSection({ card, busy, onDeploy, account, expanded }: BookSec
             <p className="text-sm text-[var(--muted)]">{BOOK_NO_ACCOUNTS}</p>
             <PlaybookChips contracts={card.contracts} />
           </div>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => card.key != null && onDeploy(card.key)}
-            className={`ml-auto ${LINK_BUTTON}`}
-          >
-            {deployBookToLabel(card.name)}
-          </button>
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+            {noBroker && (
+              <span className="text-[11px] text-[var(--muted)]">
+                <NoBrokerSentence />
+              </span>
+            )}
+            <button
+              type="button"
+              disabled={busy || noBroker}
+              title={noBroker ? NO_BROKER_COPY : undefined}
+              onClick={() => card.key != null && onDeploy(card.key)}
+              className={LINK_BUTTON}
+            >
+              {deployBookToLabel(card.name)}
+            </button>
+          </div>
         </div>
       ) : (
         card.accounts.map((row) => (

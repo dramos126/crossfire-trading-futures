@@ -7,9 +7,10 @@ import {
   PASSWORD_MIN_CHARS,
   PASSWORDS_DIFFER_PROBLEM,
   passwordProblem,
+  usernameProblem,
 } from "@/lib/auth/web-account-rules";
 import { authFailureCopy, rateLimitedFailure } from "@/lib/hooks/use-trading/auth-answer";
-import { SETUP_CODE_HINT } from "@/lib/auth/sign-in-wire";
+import { SETUP_CODE_HINT, SETUP_CODE_MISSING_MESSAGE } from "@/lib/auth/sign-in-wire";
 import { useTrading } from "@/lib/hooks/use-trading/use-trading-state";
 
 /**
@@ -23,10 +24,14 @@ const INPUT_CLASS =
 const LABEL_CLASS =
   "flex items-center gap-1.5 text-xs font-medium text-[var(--muted)] uppercase tracking-wider";
 
-export const ACCOUNT_STEP_TITLE = "Sign-in";
-export const ACCOUNT_STEP_LEAD =
-  "The username and password this install asks for before it shows anything. Anyone who can open Crossfire in a browser needs them.";
 export const PASSWORD_RULE_HINT = `At least ${PASSWORD_MIN_CHARS} characters. A few unrelated words make a strong one.`;
+
+/** A line under a field: its help, or — once the field has been left — what
+ *  is wrong with it. */
+interface FieldNote {
+  text: string;
+  refusal: boolean;
+}
 
 function Field({
   id,
@@ -35,6 +40,8 @@ function Field({
   value,
   onChange,
   autoComplete,
+  onBlur,
+  note,
 }: {
   id: string;
   label: string;
@@ -42,6 +49,8 @@ function Field({
   value: string;
   onChange: (value: string) => void;
   autoComplete: string;
+  onBlur?: () => void;
+  note?: FieldNote | null;
 }) {
   return (
     <div className="space-y-1.5">
@@ -53,13 +62,26 @@ function Field({
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
         autoComplete={autoComplete}
         spellCheck={false}
+        aria-invalid={note?.refusal === true || undefined}
+        aria-describedby={note ? `${id}-note` : undefined}
         className={INPUT_CLASS}
       />
+      {note && (
+        <p
+          id={`${id}-note`}
+          className={`text-[11px] leading-relaxed ${note.refusal ? "text-[var(--danger)]" : "text-[var(--muted)]"}`}
+        >
+          {note.text}
+        </p>
+      )}
     </div>
   );
 }
+
+type StepField = "setup-code" | "username" | "password" | "confirm";
 
 function BlockHeader({ title, lead }: { title: string; lead: string }) {
   return (
@@ -70,9 +92,12 @@ function BlockHeader({ title, lead }: { title: string; lead: string }) {
   );
 }
 
-/** The first run's account step. Its refusal is the confirm bar's, so this
- *  block only collects. `setupCode` is passed only on an install that asks
- *  for one — a broker and no account. */
+/**
+ * The first run's account step: the card the setup screen is. Each field says
+ * what is wrong with it only once it has been left, so a half-typed password
+ * is not called too short; the button's refusal is the screen's. `setupCode`
+ * is passed only on an install that asks for one — a broker and no account.
+ */
 export function AccountStepBlock({
   value,
   onChange,
@@ -82,21 +107,29 @@ export function AccountStepBlock({
   onChange: (next: AccountInput) => void;
   setupCode?: { value: string; onChange: (next: string) => void };
 }) {
+  const [left, setLeft] = useState<ReadonlySet<StepField>>(() => new Set());
+  const leave = (field: StepField) => setLeft((prev) => new Set(prev).add(field));
+  const refusalOnceLeft = (field: StepField, problem: string | null): FieldNote | null =>
+    left.has(field) && problem !== null ? { text: problem, refusal: true } : null;
+
   return (
     <section className="border border-[var(--card-border)] bg-[var(--card)] p-4 space-y-4">
-      <BlockHeader title={ACCOUNT_STEP_TITLE} lead={ACCOUNT_STEP_LEAD} />
       {setupCode && (
-        <div className="space-y-1.5">
-          <Field
-            id="account-setup-code"
-            label="Setup code"
-            type="text"
-            value={setupCode.value}
-            onChange={setupCode.onChange}
-            autoComplete="off"
-          />
-          <p className="text-[11px] leading-relaxed text-[var(--muted)]">{SETUP_CODE_HINT}</p>
-        </div>
+        <Field
+          id="account-setup-code"
+          label="Setup code"
+          type="text"
+          value={setupCode.value}
+          onChange={setupCode.onChange}
+          onBlur={() => leave("setup-code")}
+          autoComplete="off"
+          note={
+            refusalOnceLeft(
+              "setup-code",
+              setupCode.value.trim().length === 0 ? SETUP_CODE_MISSING_MESSAGE : null,
+            ) ?? { text: SETUP_CODE_HINT, refusal: false }
+          }
+        />
       )}
       <div className={SETTINGS_FIELD_GRID}>
         <Field
@@ -105,7 +138,9 @@ export function AccountStepBlock({
           type="text"
           value={value.username}
           onChange={(username) => onChange({ ...value, username })}
+          onBlur={() => leave("username")}
           autoComplete="username"
+          note={refusalOnceLeft("username", usernameProblem(value.username))}
         />
         <Field
           id="account-password"
@@ -113,7 +148,14 @@ export function AccountStepBlock({
           type="password"
           value={value.password}
           onChange={(password) => onChange({ ...value, password })}
+          onBlur={() => leave("password")}
           autoComplete="new-password"
+          note={
+            refusalOnceLeft("password", passwordProblem(value.password)) ?? {
+              text: PASSWORD_RULE_HINT,
+              refusal: false,
+            }
+          }
         />
         <Field
           id="account-confirm"
@@ -121,10 +163,14 @@ export function AccountStepBlock({
           type="password"
           value={value.confirm}
           onChange={(confirm) => onChange({ ...value, confirm })}
+          onBlur={() => leave("confirm")}
           autoComplete="new-password"
+          note={refusalOnceLeft(
+            "confirm",
+            value.confirm === value.password ? null : PASSWORDS_DIFFER_PROBLEM,
+          )}
         />
       </div>
-      <p className="text-[11px] leading-relaxed text-[var(--muted)]">{PASSWORD_RULE_HINT}</p>
     </section>
   );
 }

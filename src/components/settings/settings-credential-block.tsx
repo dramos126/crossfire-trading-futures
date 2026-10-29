@@ -38,17 +38,14 @@ import {
  *
  * **Save is per service**, as it was per tab. One global Save across every
  * connection is a far larger blast radius, and Test Connection is per service
- * already. The exception is a first run with no session, where there is
- * nothing to write incrementally with — `bundle === null` hides Save and the
- * page's confirm is the write.
+ * already.
  */
 
 const INPUT_CLASS =
   "w-full min-h-11 sm:min-h-0 border border-[var(--card-border)] bg-[var(--bg)] px-3 pr-14 py-2 text-sm font-mono text-[var(--foreground)] placeholder:text-[var(--muted)] focus:outline-none focus:border-[var(--accent)] rounded-md transition-colors";
 
-/** A block's editable state. The page owns it: the first run's single submit
- *  needs every block's values, and the Market Data gate needs every block's
- *  test result. */
+/** A block's editable state. The page owns it: the first run's confirm and the
+ *  Market Data gate need every block's test result. */
 export interface CredentialFormState {
   values: Record<string, string>;
   auto: Record<string, boolean>;
@@ -57,9 +54,7 @@ export interface CredentialFormState {
 
 export interface CredentialBlockProps {
   schema: BrokerSchema;
-  /** Null on a first run with no session: nothing is stored, nothing locks,
-   *  and Save has no route to call. */
-  bundle: SettingsBundle | null;
+  bundle: SettingsBundle;
   token: string | null;
   state: CredentialFormState;
   onField: (key: string, value: string) => void;
@@ -136,7 +131,7 @@ export function SettingsCredentialBlock({
   }
 
   async function save() {
-    if (!token || bundle === null) return;
+    if (!token) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -166,14 +161,14 @@ export function SettingsCredentialBlock({
     }
   }
 
-  const saveBody = bundle === null ? {} : buildSaveBody(schema, state.values, bundle);
+  const saveBody = buildSaveBody(schema, state.values, bundle);
   const dirty = Object.keys(saveBody).length > 0;
   const lockedFields = buildLockedFields(schema.id, bundle);
   const canTest = buildCanTest(schema, state.values, bundle, state.test);
   const autoFieldError = schema.fields.find(
     (f) => state.auto[f.key] === false && (state.values[f.key] ?? "").trim().length === 0,
   );
-  const configured = bundle !== null && schema.isConfigured;
+  const configured = schema.isConfigured;
 
   return (
     <section className="border border-[var(--card-border)] bg-[var(--card)] p-4 space-y-4">
@@ -296,23 +291,21 @@ export function SettingsCredentialBlock({
           </div>
         )}
 
-        {bundle !== null && (
-          <div className="flex flex-wrap items-center justify-end gap-3 sm:flex-nowrap">
-            {savedAt && !dirty && !saveError && (
-              <span className="font-mono text-[10px] px-2 py-0.5 border border-[var(--success)]/40 bg-[var(--success)]/10 text-[var(--success)] rounded-sm">
-                SAVED
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => void save()}
-              disabled={saving || !dirty || !!autoFieldError}
-              className="btn-emerald w-full px-5 py-2 rounded-md text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed sm:w-auto"
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
-          </div>
-        )}
+        <div className="flex flex-wrap items-center justify-end gap-3 sm:flex-nowrap">
+          {savedAt && !dirty && !saveError && (
+            <span className="font-mono text-[10px] px-2 py-0.5 border border-[var(--success)]/40 bg-[var(--success)]/10 text-[var(--success)] rounded-sm">
+              SAVED
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={saving || !dirty || !!autoFieldError}
+            className="btn-emerald w-full px-5 py-2 rounded-md text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed sm:w-auto"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
       </div>
     </section>
   );

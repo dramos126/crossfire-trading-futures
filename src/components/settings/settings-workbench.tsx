@@ -9,16 +9,11 @@ import {
   brokerInUse,
   buildAutoState,
   buildInitialTestState,
-  buildSetupBody,
   isAutoField,
   parseBrokerSchemas,
   resolveBundleValue,
   type BrokerSchema,
 } from "@/components/settings/settings-credential-fields";
-import {
-  ACTIVATION_TIMEOUT,
-  pollUntilAuthed,
-} from "@/components/settings/settings-activation";
 import {
   accountRefusal,
   confirmRefusal,
@@ -32,6 +27,7 @@ import {
 } from "@/components/settings/settings-model";
 import { SettingsNav } from "@/components/settings/settings-nav";
 import { AccountStepBlock } from "@/components/settings/settings-sign-in-blocks";
+import { Lockup } from "@/components/top-nav";
 import { authFailureCopy, rateLimitedFailure } from "@/lib/hooks/use-trading/auth-answer";
 import { SETUP_CODE_MISSING_MESSAGE } from "@/lib/auth/sign-in-wire";
 import { useTrading } from "@/lib/hooks/use-trading/use-trading-state";
@@ -39,55 +35,39 @@ import { parseSettingsBundle, type SettingsBundle } from "@/lib/settings/parse-b
 
 /**
  * `/settings/*` — the state every Settings page shares, the left menu, and
- * the first run's confirm.
+ * the first run.
  *
  * **Mounted by `app/settings/layout.tsx`, not by each page, and that is what
- * makes four pages safe.** A layout survives navigation between its children,
- * so a credential typed on Connections, a passing test, and the first-run
- * webhook typed on Notifications are all still here when the operator comes
- * back to finish setup. A per-page workbench would refetch on every menu
- * click and drop a cold-arm test result — the only record that a broker was
- * verified before anything is stored — so the confirm would refuse again.
- * Pages read this state through `useSettingsWorkbench`.
+ * makes several pages safe.** A layout survives navigation between its
+ * children, so a credential typed on Connections and a passing test are still
+ * here when the operator comes back to finish setup. Pages read this state
+ * through `useSettingsWorkbench`.
  *
  * **First run is a state of this page, not a separate wizard.** `/setup` is
  * deleted, and the redirect that used to point at it points here. That is
  * only safe because this page composes `AppChrome` directly rather than
  * `AppShell`: the page the guard redirects to is never wrapped by the guard.
  *
- * A first run has two arms, and the split is forced rather than chosen:
+ * A first run has two arms:
  *
- * - **With a session** — credentials resolve (typically from the environment
- *   on an empty database) but `setup_confirmed_at` is null. Every route is
- *   available, so blocks save individually and the confirm writes the one
- *   thing that is missing.
- * - **Without one** — nothing resolves, so `/api/settings` 401s and there is
- *   nothing to write incrementally *with*. The page runs on the two
- *   unauthenticated first-run routes and the confirm is the only write:
- *   `POST /api/settings/setup` persists every broker at once and activates
- *   the engine.
+ * - **No sign-in account yet** — there is no session, so this renders the
+ *   setup screen alone: the sign-in card and *Create sign-in*. On an install
+ *   with no broker that is the whole first run; the route confirms setup with
+ *   the account, and brokers are connected later on Connections. On one whose
+ *   broker already resolves, the account is created alone and the browser
+ *   comes back here with a session to confirm the broker.
+ * - **A session, never confirmed** — credentials resolve (typically from the
+ *   environment) but `setup_confirmed_at` is null. Blocks save individually
+ *   and the confirm writes the one thing that is missing.
  */
 
 // ── Load ───────────────────────────────────────────────────────────────
 
-interface TradovateAutoFlags {
-  appId: string;
-  appVersion: string;
-  deviceId: string;
-  appIdAuto: boolean;
-  appVersionAuto: boolean;
-  deviceIdAuto: boolean;
-}
-
 interface SetupPrefill {
-  /** The route answers 200 only while there is none, so this reads false on
-   *  every prefill the page renders from; parsed rather than assumed. */
-  hasAccount: boolean;
-  /** A broker and no account: the confirm needs the code the server printed. */
+  /** A broker and no account: the create needs the code the server printed. */
   needsSetupCode: boolean;
-  topstepUsername: string | null;
-  tradovate: TradovateAutoFlags | null;
-  schemas: BrokerSchema[];
+  /** A broker already resolves, so the account is created alone. */
+  brokerResolves: boolean;
 }
 
 type LoadState =
@@ -103,101 +83,58 @@ type ConfirmPhase =
   | { kind: "failed"; message: string };
 
 const LOAD_FAILED =
-  "Settings could not be read. The app has no working broker session and no first-run credentials to offer — check the engine log.";
-
-function parseTradovateFlags(input: unknown): TradovateAutoFlags | null {
-  if (typeof input !== "object" || input === null) return null;
-  const o = input as Record<string, unknown>;
-  if (
-    typeof o.appId !== "string" ||
-    typeof o.appVersion !== "string" ||
-    typeof o.deviceId !== "string" ||
-    typeof o.appIdAuto !== "boolean" ||
-    typeof o.appVersionAuto !== "boolean" ||
-    typeof o.deviceIdAuto !== "boolean"
-  ) {
-    return null;
-  }
-  return {
-    appId: o.appId,
-    appVersion: o.appVersion,
-    deviceId: o.deviceId,
-    appIdAuto: o.appIdAuto,
-    appVersionAuto: o.appVersionAuto,
-    deviceIdAuto: o.deviceIdAuto,
-  };
-}
+  "Settings could not be read. The app has no working session and no first-run answer to offer — check the engine log.";
+export const CONFIRM_NEVER_LANDED = "The request never reached the server. Setup is unchanged.";
 
 /** The unauthenticated first-run response. Validated because it is a network
- *  boundary and because a missing `brokers` array would render an empty page
- *  that looks like "no brokers exist". */
+ *  boundary; the schema list is how it says whether a broker resolves. */
 function parsePrefill(input: unknown): SetupPrefill | null {
   if (typeof input !== "object" || input === null) return null;
   const o = input as Record<string, unknown>;
   const schemas = parseBrokerSchemas(o.brokers);
   if (schemas === null) return null;
   return {
-    hasAccount: o.hasAccount === true,
     needsSetupCode: o.needsSetupCode === true,
-    topstepUsername: typeof o.topstepUsername === "string" ? o.topstepUsername : null,
-    tradovate: parseTradovateFlags(o.tradovate),
-    schemas,
+    brokerResolves: schemas.some((schema) => schema.isConfigured),
   };
+}
+
+/** The schema list says whether a broker is configured, and it is re-read with
+ *  the bundle after every save — so the first broker saved lists Risk. */
+function modeOf(bundle: SettingsBundle, schemas: readonly BrokerSchema[]): SettingsMode {
+  return resolveSettingsMode(
+    bundle.setupConfirmedAt ?? null,
+    schemas.some((schema) => schema.isConfigured),
+  );
 }
 
 // ── Form seeding ───────────────────────────────────────────────────────
 
 function seedForms(
   schemas: readonly BrokerSchema[],
-  bundle: SettingsBundle | null,
-  prefill: SetupPrefill | null,
+  bundle: SettingsBundle,
 ): Record<string, CredentialFormState> {
   const forms: Record<string, CredentialFormState> = {};
   for (const schema of schemas) {
     const values: Record<string, string> = {};
     for (const field of schema.fields) {
-      if (field.secret) {
-        values[field.key] = "";
-        continue;
-      }
-      if (bundle !== null) {
-        values[field.key] = resolveBundleValue(schema.id, field.key, bundle) ?? "";
-        continue;
-      }
-      values[field.key] = coldSeed(schema.id, field.key, prefill);
+      values[field.key] = field.secret ? "" : (resolveBundleValue(schema.id, field.key, bundle) ?? "");
     }
     forms[schema.id] = {
       values,
-      auto: buildAutoState(
-        schema.id,
-        bundle !== null ? bundle.tradovate : (prefill?.tradovate ?? null),
-      ),
+      auto: buildAutoState(schema.id, bundle.tradovate),
       test: buildInitialTestState(schema.id, bundle),
     };
   }
   return forms;
 }
 
-function coldSeed(brokerId: string, fieldKey: string, prefill: SetupPrefill | null): string {
-  if (prefill === null) return "";
-  if (brokerId === "topstep" && fieldKey === "topstepUsername") {
-    return prefill.topstepUsername ?? "";
-  }
-  if (brokerId === "tradovate" && prefill.tradovate) {
-    if (fieldKey === "tradovateAppId") return prefill.tradovate.appId;
-    if (fieldKey === "tradovateAppVersion") return prefill.tradovate.appVersion;
-    if (fieldKey === "tradovateDeviceId") return prefill.tradovate.deviceId;
-  }
-  return "";
-}
-
 // ── Shared state ───────────────────────────────────────────────────────
 
-/** What every Settings page reads. Present only once the load has settled on
- *  a session or the cold arm — no page renders while it is loading. */
+/** What every Settings page reads. Present only once there is a session — no
+ *  page renders while loading or on the setup screen. */
 export interface SettingsWorkbenchState {
-  /** Null on a first run with no session. */
-  bundle: SettingsBundle | null;
+  bundle: SettingsBundle;
   schemas: readonly BrokerSchema[];
   token: string | null;
   mode: SettingsMode;
@@ -209,9 +146,6 @@ export interface SettingsWorkbenchState {
   /** Fold a save's own answer in, without a refetch. */
   adoptBundle: (updated: SettingsBundle) => void;
   refreshBundle: () => Promise<void>;
-  /** The webhook typed on a cold first run, sent with the confirm. */
-  webhookInput: string;
-  setWebhookInput: (value: string) => void;
   /** The account-status check this visit fired, for the Risk list. */
   accountStatusCheck: AccountStatusCheckState;
 }
@@ -240,12 +174,9 @@ export function useSettingsWorkbench(): SettingsWorkbenchState {
 
 export function SettingsWorkbench({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { token, status, connect, signIn } = useTrading();
+  const { token, status, connect } = useTrading();
   const [load, setLoad] = useState<LoadState>({ kind: "loading" });
   const [forms, setForms] = useState<Record<string, CredentialFormState>>({});
-  const [webhookInput, setWebhookInput] = useState("");
-  const [accountInput, setAccountInput] = useState<AccountInput>(EMPTY_ACCOUNT_INPUT);
-  const [setupCode, setSetupCode] = useState("");
   const [confirmPhase, setConfirmPhase] = useState<ConfirmPhase>({ kind: "idle" });
   const [accountStatusCheck, setAccountStatusCheck] = useState<AccountStatusCheckState>({
     kind: "idle",
@@ -281,8 +212,8 @@ export function SettingsWorkbench({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // `disconnected` / `connecting` are not answers — the provider is still
-    // deciding whether there is a session. Committing to the cold arm here
-    // would flash a first-run page at a configured operator on every load.
+    // deciding whether there is a session. Committing to the setup screen here
+    // would flash it at a configured operator on every load.
     const settled = token != null || status === "needsSetup" || status === "error";
     if (!settled) return;
     const ac = new AbortController();
@@ -297,21 +228,14 @@ export function SettingsWorkbench({ children }: { children: React.ReactNode }) {
           // result — `refreshBundle` is what folds server answers in after
           // the first load.
           setForms((prev) =>
-            Object.keys(prev).length === 0 ? seedForms(result.schemas, result.bundle, null) : prev,
+            Object.keys(prev).length === 0 ? seedForms(result.schemas, result.bundle) : prev,
           );
           return;
         }
         const res = await fetch("/api/settings/setup-prefill", { signal: ac.signal });
         if (ac.signal.aborted) return;
         const prefill = res.ok ? parsePrefill(await res.json().catch(() => null)) : null;
-        if (prefill === null) {
-          setLoad({ kind: "error", message: LOAD_FAILED });
-          return;
-        }
-        setLoad({ kind: "cold", prefill });
-        setForms((prev) =>
-          Object.keys(prev).length === 0 ? seedForms(prefill.schemas, null, prefill) : prev,
-        );
+        setLoad(prefill === null ? { kind: "error", message: LOAD_FAILED } : { kind: "cold", prefill });
       } catch (err) {
         if (ac.signal.aborted) return;
         setLoad({
@@ -365,8 +289,7 @@ export function SettingsWorkbench({ children }: { children: React.ReactNode }) {
   // this settles. Not aborted on unmount: the ref has already spent this
   // visit's one check, and the server records the answer either way.
   const sessionToken = load.kind === "session" ? token : null;
-  const sessionMode =
-    load.kind === "session" ? resolveSettingsMode(load.bundle.setupConfirmedAt ?? null) : null;
+  const sessionMode = load.kind === "session" ? modeOf(load.bundle, load.schemas) : null;
   useEffect(() => {
     if (sessionToken == null || sessionMode == null || !showsRisk(sessionMode)) return;
     if (statusCheckFiredRef.current) return;
@@ -424,12 +347,10 @@ export function SettingsWorkbench({ children }: { children: React.ReactNode }) {
 
   const resetBroker = useCallback(
     (brokerId: string) => {
-      const bundle = load.kind === "session" ? load.bundle : null;
-      const prefill = load.kind === "cold" ? load.prefill : null;
-      const schemas = load.kind === "session" ? load.schemas : (prefill?.schemas ?? []);
-      const schema = schemas.find((s) => s.id === brokerId);
+      if (load.kind !== "session") return;
+      const schema = load.schemas.find((s) => s.id === brokerId);
       if (!schema) return;
-      setForms((prev) => ({ ...prev, ...seedForms([schema], bundle, prefill) }));
+      setForms((prev) => ({ ...prev, ...seedForms([schema], load.bundle) }));
     },
     [load],
   );
@@ -452,9 +373,10 @@ export function SettingsWorkbench({ children }: { children: React.ReactNode }) {
     );
   }
 
-  const bundle = load.kind === "session" ? load.bundle : null;
-  const schemas = load.kind === "session" ? load.schemas : load.prefill.schemas;
-  const mode = resolveSettingsMode(bundle?.setupConfirmedAt ?? null);
+  if (load.kind === "cold") return <FirstRunSetup prefill={load.prefill} />;
+
+  const { bundle, schemas } = load;
+  const mode = modeOf(bundle, schemas);
 
   const progress: BrokerProgress[] = schemas.map((schema) => ({
     id: schema.id,
@@ -462,115 +384,30 @@ export function SettingsWorkbench({ children }: { children: React.ReactNode }) {
     inUse: brokerInUse(schema, forms[schema.id]?.values ?? {}, bundle),
     verified: forms[schema.id]?.test.kind === "passed",
   }));
-  // The account step shows on the cold arm until an account exists. When a
-  // broker already resolves there — stored before sign-in existed, or from
-  // the environment — it is the whole of first run on this arm: the account
-  // is created alone, and the browser signs in and carries on with a session.
-  const needsAccountStep = load.kind === "cold" && !load.prefill.hasAccount;
-  const accountOnly = needsAccountStep && schemas.some((schema) => schema.isConfigured);
-  const needsSetupCode = load.kind === "cold" && load.prefill.needsSetupCode;
-  const refusal =
-    (needsSetupCode && setupCode.trim().length === 0 ? SETUP_CODE_MISSING_MESSAGE : null) ??
-    (needsAccountStep ? accountRefusal(accountInput) : null) ??
-    (accountOnly ? null : (confirmRefusal(progress)?.message ?? null));
-  const account = { username: accountInput.username, password: accountInput.password };
-
-  async function createAccountAndSignIn() {
-    const res = await fetch("/api/settings/setup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(needsSetupCode ? { account, setupCode } : { account }),
-    });
-    if (!res.ok) {
-      const data: unknown = await res.json().catch(() => ({}));
-      // Another browser created it first; this one signs in like any other.
-      if (res.status === 409) {
-        router.replace("/");
-        return;
-      }
-      const error = (data as { error?: unknown }).error;
-      const message =
-        res.status === 429
-          ? authFailureCopy(rateLimitedFailure(data))
-          : typeof error === "string"
-            ? error
-            : `Could not finish setup (${res.status})`;
-      setConfirmPhase({ kind: "failed", message });
-      return;
-    }
-    const failure = await signIn(account.username, account.password);
-    if (failure !== null) {
-      setConfirmPhase({ kind: "failed", message: authFailureCopy(failure) });
-      return;
-    }
-    setConfirmPhase({ kind: "done" });
-    // The guard decides what is left: the dashboard, or this page again
-    // with a session if setup was never confirmed.
-    router.replace("/");
-  }
+  const refusal = confirmRefusal(progress)?.message ?? null;
 
   async function runConfirm() {
     setConfirmPhase({ kind: "working", statusText: "Saving…" });
     try {
-      if (accountOnly) {
-        await createAccountAndSignIn();
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmSetup: true }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        setConfirmPhase({ kind: "failed", message: data.error ?? `Could not finish setup (${res.status})` });
         return;
       }
-      if (bundle !== null && token) {
-        const res = await fetch("/api/settings", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ confirmSetup: true }),
-        });
-        if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
-          setConfirmPhase({ kind: "failed", message: data.error ?? `Could not finish setup (${res.status})` });
-          return;
-        }
-      } else {
-        const res = await fetch("/api/settings/setup", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...buildSetupBody(schemas, valuesOf(forms), webhookInput), account }),
-        });
-        if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
-          // 409 means another tab finished setup first, which is a success
-          // from here — the install is configured either way.
-          if (res.status === 409) {
-            router.replace("/");
-            return;
-          }
-          setConfirmPhase({
-            kind: "failed",
-            message: data.error ?? `Could not finish setup (${res.status})`,
-          });
-          return;
-        }
-        const outcome = await pollUntilAuthed({
-          onProgress: (statusText) => setConfirmPhase({ kind: "working", statusText }),
-          account,
-        });
-        if (!outcome.ok) {
-          setConfirmPhase({ kind: "failed", message: outcome.message });
-          return;
-        }
-      }
       setConfirmPhase({ kind: "done" });
-      // The provider does not re-fire `connect()` out of `needsSetup` on its
-      // own — that status only clears when the operator acts, which is now.
-      //
       // **Awaited, not fired-and-forgotten.** `/` mounts `<SetupGuard>`, which
       // reads the same status; navigating with the connect still in flight
-      // means the guard sees `needsSetup`, bounces back here, and the cold
-      // arm's prefill route now 409s because the credentials were just
-      // written — so the last thing a first run shows is the LOAD_FAILED box.
-      // It self-heals, which is what made it survive. `connect()` resolves
-      // after it has dispatched, and it never rejects.
+      // can bounce the guard straight back here. `connect()` resolves after it
+      // has dispatched, and it never rejects.
       await connect();
       router.replace("/");
     } catch {
-      setConfirmPhase({ kind: "failed", message: ACTIVATION_TIMEOUT });
+      setConfirmPhase({ kind: "failed", message: CONFIRM_NEVER_LANDED });
     }
   }
 
@@ -587,33 +424,12 @@ export function SettingsWorkbench({ children }: { children: React.ReactNode }) {
     adoptBundle: (updated) =>
       setLoad((prev) => (prev.kind === "session" ? { ...prev, bundle: updated } : prev)),
     refreshBundle,
-    webhookInput,
-    setWebhookInput,
     accountStatusCheck,
   };
 
-  const confirmBar = (
-    <ConfirmBar refusal={refusal} phase={confirmPhase} onConfirm={() => void runConfirm()} />
-  );
-
-  if (accountOnly) {
-    return (
-      <PageFrame>
-        <AccountOnlyHeader />
-        <AccountStepBlock
-          value={accountInput}
-          onChange={setAccountInput}
-          setupCode={needsSetupCode ? { value: setupCode, onChange: setSetupCode } : undefined}
-        />
-        {confirmBar}
-      </PageFrame>
-    );
-  }
-
   return (
     <PageFrame>
-      {mode === "first-run" && <FirstRunHeader cold={bundle === null} />}
-      {needsAccountStep && <AccountStepBlock value={accountInput} onChange={setAccountInput} />}
+      {mode === "first-run" && <FirstRunHeader />}
 
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-[160px_minmax(0,1fr)] items-start">
         <SettingsNav pages={settingsPagesFor(mode)} />
@@ -622,19 +438,123 @@ export function SettingsWorkbench({ children }: { children: React.ReactNode }) {
 
           {/* Under whichever page is open: a first run spans Connections and
               Notifications, and the confirm is the foot of both. */}
-          {mode === "first-run" && confirmBar}
+          {mode === "first-run" && (
+            <ConfirmBar refusal={refusal} phase={confirmPhase} onConfirm={() => void runConfirm()} />
+          )}
         </div>
       </div>
     </PageFrame>
   );
 }
 
-function valuesOf(
-  forms: Record<string, CredentialFormState>,
-): Record<string, Record<string, string>> {
-  const out: Record<string, Record<string, string>> = {};
-  for (const [id, form] of Object.entries(forms)) out[id] = form.values;
-  return out;
+// ── The setup screen ───────────────────────────────────────────────────
+
+export const FIRST_RUN_TITLE = "Set up Crossfire";
+export const FIRST_RUN_LINE =
+  "Brokers are connected later, in Settings. Until then you can look around, and nothing can trade.";
+export const ACCOUNT_ONLY_LEAD =
+  "Its broker connection is already set up. Choose a username and password; from now on Crossfire asks for them before it shows anything.";
+export const CREATE_SIGN_IN_LABEL = "Create sign-in";
+
+type CreatePhase = { kind: "idle" } | { kind: "working" } | { kind: "failed"; message: string };
+
+/**
+ * The first run with no account: the only thing on screen until it is done —
+ * no menu, no broker blocks, no chrome (`AppChrome` drops it while the
+ * provider says `needsSetup`). *Create sign-in* creates the account, signs in
+ * with it and goes to `/`.
+ */
+function FirstRunSetup({ prefill }: { prefill: SetupPrefill }) {
+  const router = useRouter();
+  const { signIn, connect } = useTrading();
+  const [account, setAccount] = useState<AccountInput>(EMPTY_ACCOUNT_INPUT);
+  const [setupCode, setSetupCode] = useState("");
+  const [phase, setPhase] = useState<CreatePhase>({ kind: "idle" });
+  const refusal =
+    (prefill.needsSetupCode && setupCode.trim().length === 0 ? SETUP_CODE_MISSING_MESSAGE : null) ??
+    accountRefusal(account);
+  const working = phase.kind === "working";
+
+  async function create() {
+    if (refusal !== null || working) return;
+    setPhase({ kind: "working" });
+    const pair = { username: account.username, password: account.password };
+    try {
+      const res = await fetch("/api/settings/setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(prefill.needsSetupCode ? { account: pair, setupCode } : { account: pair }),
+      });
+      if (!res.ok) {
+        const data: unknown = await res.json().catch(() => ({}));
+        // Another browser created it first; this one signs in like any other.
+        // Re-read the status first: still `needsSetup`, the guard would send
+        // it back here, where setup-prefill now answers 409.
+        if (res.status === 409) {
+          await connect();
+          router.replace("/");
+          return;
+        }
+        const error = (data as { error?: unknown }).error;
+        setPhase({
+          kind: "failed",
+          message:
+            res.status === 429
+              ? authFailureCopy(rateLimitedFailure(data))
+              : typeof error === "string"
+                ? error
+                : `Could not create the sign-in (${res.status})`,
+        });
+        return;
+      }
+      const failure = await signIn(pair.username, pair.password);
+      if (failure !== null) {
+        setPhase({ kind: "failed", message: authFailureCopy(failure) });
+        return;
+      }
+      // The guard decides what is left: the Dashboard, or Settings again with
+      // a session when a broker that already resolved still needs confirming.
+      router.replace("/");
+    } catch {
+      setPhase({ kind: "failed", message: CONFIRM_NEVER_LANDED });
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <Lockup />
+      </div>
+      <h1 className="text-2xl font-semibold tracking-tight">{FIRST_RUN_TITLE}</h1>
+      <AccountStepBlock
+        value={account}
+        onChange={setAccount}
+        setupCode={prefill.needsSetupCode ? { value: setupCode, onChange: setSetupCode } : undefined}
+      />
+      {phase.kind === "failed" && (
+        <div
+          role="alert"
+          className="border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-4 py-2.5 text-sm font-mono text-[var(--danger)] rounded-md"
+        >
+          {phase.message}
+        </div>
+      )}
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        <p className="mr-auto text-[11px] leading-relaxed text-[var(--muted)]">
+          {prefill.brokerResolves ? ACCOUNT_ONLY_LEAD : FIRST_RUN_LINE}
+        </p>
+        <button
+          type="button"
+          onClick={() => void create()}
+          disabled={refusal !== null || working}
+          title={refusal ?? undefined}
+          className="btn-emerald px-5 py-2 rounded-md text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {working ? "Working…" : CREATE_SIGN_IN_LABEL}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // ── Chrome ─────────────────────────────────────────────────────────────
@@ -648,7 +568,7 @@ function PageFrame({ children }: { children: React.ReactNode }) {
   );
 }
 
-function FirstRunHeader({ cold }: { cold: boolean }) {
+function FirstRunHeader() {
   return (
     <div className="border border-[var(--accent)]/30 bg-[var(--accent)]/10 px-4 py-3 space-y-1">
       <h2 className="text-sm font-semibold tracking-tight text-[var(--foreground)]">
@@ -658,41 +578,13 @@ function FirstRunHeader({ cold }: { cold: boolean }) {
         Connect at least one broker — Topstep, Tradovate, or both. Either is enough on its own.
         Test each connection you fill in, then finish setup at the foot of the page.
       </p>
-      {cold && (
-        <p className="text-[11px] leading-relaxed text-[var(--muted)]">{FIRST_RUN_ACCOUNT_LINE}</p>
-      )}
-      {cold && (
-        <p className="text-[11px] leading-relaxed text-[var(--muted)]">
-          Credentials are stored in this app&apos;s own database. Secrets never come back over
-          the network once saved.
-        </p>
-      )}
-    </div>
-  );
-}
-
-export const FIRST_RUN_ACCOUNT_LINE =
-  "Choose the username and password this install will ask for. Both are needed to finish.";
-export const ACCOUNT_ONLY_TITLE = "Create the sign-in for this install";
-export const ACCOUNT_ONLY_LEAD =
-  "Its broker connection is already set up. Choose a username and password; from now on Crossfire asks for them before it shows anything.";
-
-/** An install whose broker resolves but which has no sign-in yet: the one
- *  thing first run still needs from it. */
-function AccountOnlyHeader() {
-  return (
-    <div className="border border-[var(--accent)]/30 bg-[var(--accent)]/10 px-4 py-3 space-y-1">
-      <h2 className="text-sm font-semibold tracking-tight text-[var(--foreground)]">
-        {ACCOUNT_ONLY_TITLE}
-      </h2>
-      <p className="text-[11px] leading-relaxed text-[var(--muted)]">{ACCOUNT_ONLY_LEAD}</p>
     </div>
   );
 }
 
 /**
- * The confirm — the terminal action of a first run and the only thing that
- * writes `setup_confirmed_at`.
+ * The confirm — the terminal action of a session first run and the only
+ * thing on it that writes `setup_confirmed_at`.
  *
  * Without it, saving credentials leaves `<SetupGuard>` redirecting forever
  * with every credential already in place, which is the loop this whole page

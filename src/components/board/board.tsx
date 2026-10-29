@@ -22,6 +22,8 @@ import {
 } from "@/components/board/board-view";
 import { useBoardModel } from "@/components/board/use-board";
 import { ViewControls } from "@/components/privacy/view-controls";
+import { NoBrokerSentence, useNoBroker } from "@/components/settings/no-broker";
+import { NO_BROKER_COPY } from "@/lib/hooks/use-trading/auth-answer";
 import { useTrading } from "@/lib/hooks/use-trading/use-trading-state";
 
 /**
@@ -150,12 +152,15 @@ export function Board() {
   const { cards, hiddenBookCount, hiddenPlaybookCount } = boardVisibility(board);
   const hiddenBooks = describeHiddenBooks(hiddenBookCount);
 
+  const noBroker = useNoBroker();
   const shown = presentBoard({
     connection: trading.status,
     deployments: deploymentsLoadState,
     cardCount: cards.length,
     hiddenBookCount,
+    noBroker,
   });
+  const blindReason = noBroker ? NO_BROKER_COPY : BOARD_TOTALS_UNAVAILABLE;
 
   const foldable = shown.body.kind === "cards" ? cards.map((c) => c.id) : [];
   const allOpen = foldable.length > 0 && foldable.every((id) => expanded.has(id));
@@ -192,16 +197,21 @@ export function Board() {
           <StripFigure
             label="Session P&L"
             readable={false}
-            reason={shown.totalsReadable ? TOTAL_UNPRICED : BOARD_TOTALS_UNAVAILABLE}
+            reason={shown.totalsReadable ? TOTAL_UNPRICED : blindReason}
           >
             {null}
           </StripFigure>
         ) : (
-          <StripFigure label="Session P&L" readable={shown.totalsReadable} tone={pnlToneClass(total.total)}>
+          <StripFigure
+            label="Session P&L"
+            readable={shown.totalsReadable}
+            reason={blindReason}
+            tone={pnlToneClass(total.total)}
+          >
             {formatUsd(total.total)}
           </StripFigure>
         )}
-        <StripFigure label="Open" readable={shown.totalsReadable}>
+        <StripFigure label="Open" readable={shown.totalsReadable} reason={blindReason}>
           {openPositions}
         </StripFigure>
         {/* On a phone this is the strip's second row, Flatten all filling
@@ -306,6 +316,12 @@ export function Board() {
             Playbooks
           </Link>{" "}
           to put one on an account.
+        </div>
+      )}
+
+      {shown.body.kind === "no-broker" && (
+        <div className="rounded-lg border border-[var(--card-border)] bg-[var(--card)] px-4 py-6 text-center text-xs text-[var(--muted)]">
+          <NoBrokerSentence />
         </div>
       )}
 
